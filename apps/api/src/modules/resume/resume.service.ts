@@ -213,7 +213,7 @@ export class ResumeService {
       }
     }
 
-    const extraction = (job.extracted as unknown as JobExtraction | null) ?? extractJob({ title: job.title, description: job.description, location: job.location });
+    const extraction = (job.extracted as unknown as JobExtraction | null) ?? extractJob({ title: job.title, description: job.description, location: job.location, companyName: job.company.name });
     const weights = jobSkillWeights(extraction);
     const gaps = [...weights.keys()].filter((s) => classifySkill(s, profile).level !== 'strong');
     let data = master.data;
