@@ -1,0 +1,639 @@
+// Career Outreach Agent — PostgreSQL schema.
+// PostgreSQL is the source of truth; Redis only holds caches, locks and queues.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum CompanySize {
+  EARLY_STARTUP
+  GROWTH_STARTUP
+  MID_MARKET
+  ENTERPRISE
+  UNKNOWN
+}
+
+enum JobProviderKind {
+  MANUAL
+  PASTE
+  URL
+  GREENHOUSE
+  LEVER
+  ASHBY
+  REMOTIVE
+  HIMALAYAS
+  JOBICY
+  ARBEITNOW
+  REMOTEOK
+  HN_HIRING
+  WWR
+}
+
+enum Recommendation {
+  STRONG_APPLY
+  APPLY
+  CONSIDER
+  LOW_PRIORITY
+  SKIP
+}
+
+enum ApplicationStatus {
+  DISCOVERED
+  QUALIFIED
+  SHORTLISTED
+  CONTACT_FOUND
+  RESUME_READY
+  EMAIL_READY
+  EMAIL_SENT
+  WAITING_FOR_REPLY
+  FOLLOWUP_SCHEDULED
+  REPLIED
+  INTERVIEW
+  REJECTED
+  OFFER
+  CLOSED
+}
+
+enum ContactRole {
+  HIRING_MANAGER
+  ENGINEERING_MANAGER
+  TECHNICAL_RECRUITER
+  ENGINEERING_DIRECTOR
+  RECRUITER
+  HR
+  FOUNDER
+  CTO
+  ENGINEER
+  OTHER
+}
+
+enum ContactConfidence {
+  VERIFIED
+  LIKELY
+  UNVERIFIED
+  UNKNOWN
+}
+
+enum OutreachKind {
+  INITIAL
+  FOLLOWUP
+}
+
+enum OutreachStatus {
+  DRAFT
+  APPROVED
+  SENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+enum ThreadState {
+  NOT_SENT
+  WAITING_FOR_REPLY
+  REPLIED
+  BOUNCED
+  CLOSED
+}
+
+enum FollowupStatus {
+  SCHEDULED
+  DRAFT_READY
+  APPROVED
+  SENT
+  CANCELLED
+  SKIPPED
+  FAILED
+}
+
+enum EmailProviderKind {
+  GMAIL
+  SANDBOX
+}
+
+enum EmailAccountStatus {
+  CONNECTED
+  REVOKED
+  ERROR
+}
+
+enum EmailEventType {
+  DRAFT_CREATED
+  SENT
+  SEND_FAILED
+  REPLY_RECEIVED
+  AUTO_REPLY
+  BOUNCE
+  FOLLOWUP_CANCELLED
+  UNSUBSCRIBE
+}
+
+enum AiKind {
+  JOB_ANALYSIS
+  RESUME_TAILOR
+  RESUME_PARSE
+  EMAIL
+  FOLLOWUP
+}
+
+enum AiStatus {
+  SUCCESS
+  FAILED
+}
+
+enum ResumeSource {
+  SEED
+  IMPORT
+  MANUAL
+}
+
+// ─── Models ──────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  settings     Json     @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  profile        Profile?
+  resumes        Resume[]
+  resumeVersions ResumeVersion[]
+  companies      Company[]
+  jobs           Job[]
+  jobSources     JobSource[]
+  contacts       Contact[]
+  applications   Application[]
+  outreach       Outreach[]
+  followups      Followup[]
+  emailAccounts  EmailAccount[]
+  emailEvents    EmailEvent[]
+  aiGenerations  AiGeneration[]
+  auditLogs      AuditLog[]
+  suppressions   Suppression[]
+  discoveryRuns  DiscoveryRun[]
+  interviews     Interview[]
+
+  @@map("users")
+}
+
+/// Mirror of /candidate/candidate-profile.md (the file is canonical).
+model Profile {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @unique @map("user_id") @db.Uuid
+  markdown    String
+  data        Json
+  contentHash String   @map("content_hash")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+}
+
+/// Structured master resume. Only truthful content.
+model Resume {
+  id          String       @id @default(uuid()) @db.Uuid
+  userId      String       @map("user_id") @db.Uuid
+  name        String
+  isMaster    Boolean      @default(true) @map("is_master")
+  data        Json
+  source      ResumeSource @default(MANUAL)
+  contentHash String       @map("content_hash")
+  /// The user's own LaTeX resume (authoritative template). Never redesigned.
+  latexSource String?      @map("latex_source")
+  /// Extra files the .tex needs (.cls/.sty), { filename: base64 }.
+  latexAssets Json?        @map("latex_assets")
+  latexEngine String?      @map("latex_engine")
+  latexHash   String?      @map("latex_hash")
+  /// Compiled master PDF (from latexSource).
+  pdf         Bytes?
+  compileLog  String?      @map("compile_log")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  deletedAt   DateTime?    @map("deleted_at")
+
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  versions ResumeVersion[]
+
+  @@index([userId, isMaster])
+  @@map("resumes")
+}
+
+/// Tailored resume for one job. Re-used while (master hash, job hash) are unchanged.
+model ResumeVersion {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  resumeId     String   @map("resume_id") @db.Uuid
+  jobId        String   @map("job_id") @db.Uuid
+  data         Json
+  changes      Json     @default("[]")
+  inputHash    String   @map("input_hash")
+  contentHash  String   @map("content_hash")
+  aiAssisted   Boolean  @default(false) @map("ai_assisted")
+  /// Tailored LaTeX + compiled PDF (when the master is a LaTeX resume).
+  latex         String?
+  pdf           Bytes?
+  compileStatus String?  @map("compile_status")
+  compileLog    String?  @map("compile_log")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resume       Resume        @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  job          Job           @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  applications Application[]
+  outreach     Outreach[]
+
+  @@unique([resumeId, jobId, inputHash])
+  @@index([jobId])
+  @@map("resume_versions")
+}
+
+model Company {
+  id             String      @id @default(uuid()) @db.Uuid
+  userId         String      @map("user_id") @db.Uuid
+  name           String
+  normalizedName String      @map("normalized_name")
+  domain         String?
+  website        String?
+  size           CompanySize @default(UNKNOWN)
+  companyType    String?     @map("company_type")
+  location       String?
+  description    String?
+  /// Verified facts only: [{ text, sourceUrl, fetchedAt }]
+  research       Json?
+  researchedAt   DateTime?   @map("researched_at")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+  deletedAt      DateTime?   @map("deleted_at")
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobs     Job[]
+  contacts Contact[]
+
+  @@unique([userId, normalizedName])
+  @@index([userId, domain])
+  @@map("companies")
+}
+
+model JobSource {
+  id        String          @id @default(uuid()) @db.Uuid
+  userId    String          @map("user_id") @db.Uuid
+  provider  JobProviderKind
+  name      String
+  /// Provider config, e.g. { boardToken: "acme" }
+  config    Json            @default("{}")
+  enabled   Boolean         @default(true)
+  lastRunAt DateTime?       @map("last_run_at")
+  lastError String?         @map("last_error")
+  lastCount Int?            @map("last_count")
+  /// Funnel of the last run: fetched → filtered → new → qualified → AI.
+  lastStats Json?           @map("last_stats")
+  /// Seeded automatically (curated boards / public aggregators).
+  isDefault Boolean         @default(false) @map("is_default")
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobs Job[]
+
+  @@unique([userId, provider, name])
+  @@map("job_sources")
+}
+
+model Job {
+  id              String          @id @default(uuid()) @db.Uuid
+  userId          String          @map("user_id") @db.Uuid
+  companyId       String          @map("company_id") @db.Uuid
+  sourceId        String?         @map("source_id") @db.Uuid
+  provider        JobProviderKind
+  externalId      String?         @map("external_id")
+  url             String?
+  title           String
+  location        String?
+  remote          Boolean?
+  employmentType  String?         @map("employment_type")
+  salaryMin       Int?            @map("salary_min")
+  salaryMax       Int?            @map("salary_max")
+  salaryCurrency  String?         @map("salary_currency")
+  salaryPeriod    String?         @map("salary_period")
+  description     String
+  /// sha256 of normalized company+title+description — content-level dedupe.
+  contentHash     String          @map("content_hash")
+  /// sha256 of provider+externalId or canonical URL — source-level dedupe.
+  sourceHash      String?         @map("source_hash")
+  /// Deterministic extraction (skills, years, seniority, remote...)
+  extracted       Json?
+  score           Int?
+  scoreBreakdown  Json?           @map("score_breakdown")
+  recommendation  Recommendation?
+  /// Hash of profile+settings the score was computed against.
+  scoredWith      String?         @map("scored_with")
+  analysis        Json?
+  /// Hash of (job content + profile) the AI analysis belongs to.
+  analysisHash    String?         @map("analysis_hash")
+  postedAt        DateTime?       @map("posted_at")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+  deletedAt       DateTime?       @map("deleted_at")
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  source         JobSource?      @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  application    Application?
+  resumeVersions ResumeVersion[]
+
+  @@unique([userId, contentHash])
+  @@unique([userId, sourceHash])
+  @@index([userId, score])
+  @@index([userId, recommendation])
+  @@index([companyId])
+  @@map("jobs")
+}
+
+model Contact {
+  id              String            @id @default(uuid()) @db.Uuid
+  userId          String            @map("user_id") @db.Uuid
+  companyId       String            @map("company_id") @db.Uuid
+  name            String
+  role            String?
+  roleCategory    ContactRole       @default(OTHER) @map("role_category")
+  email           String?
+  emailNormalized String?           @map("email_normalized")
+  source          String
+  sourceUrl       String?           @map("source_url")
+  confidence      ContactConfidence @default(UNKNOWN)
+  linkedinUrl     String?           @map("linkedin_url")
+  notes           String?
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+  deletedAt       DateTime?         @map("deleted_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  applications Application[]
+  outreach     Outreach[]
+
+  @@unique([userId, companyId, emailNormalized])
+  @@index([userId, emailNormalized])
+  @@map("contacts")
+}
+
+model Application {
+  id              String            @id @default(uuid()) @db.Uuid
+  userId          String            @map("user_id") @db.Uuid
+  jobId           String            @unique @map("job_id") @db.Uuid
+  contactId       String?           @map("contact_id") @db.Uuid
+  resumeVersionId String?           @map("resume_version_id") @db.Uuid
+  status          ApplicationStatus @default(DISCOVERED)
+  statusChangedAt DateTime          @default(now()) @map("status_changed_at")
+  /// Positive / neutral / negative reply classification for analytics.
+  replySentiment  String?           @map("reply_sentiment")
+  /// When the automation prepared contact + resume + draft for this job.
+  autoPreparedAt  DateTime?         @map("auto_prepared_at")
+  notes           String?
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+  deletedAt       DateTime?         @map("deleted_at")
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job           Job            @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  contact       Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  resumeVersion ResumeVersion? @relation(fields: [resumeVersionId], references: [id], onDelete: SetNull)
+  outreach      Outreach[]
+  interviews    Interview[]
+
+  @@index([userId, status])
+  @@map("applications")
+}
+
+/// One email (initial or follow-up). Follow-ups point at their thread root.
+model Outreach {
+  id              String         @id @default(uuid()) @db.Uuid
+  userId          String         @map("user_id") @db.Uuid
+  applicationId   String         @map("application_id") @db.Uuid
+  contactId       String         @map("contact_id") @db.Uuid
+  emailAccountId  String?        @map("email_account_id") @db.Uuid
+  resumeVersionId String?        @map("resume_version_id") @db.Uuid
+  rootId          String?        @map("root_id") @db.Uuid
+  kind            OutreachKind
+  sequence        Int            @default(0)
+  toEmail         String         @map("to_email")
+  subject         String
+  body            String
+  style           String         @default("concise")
+  attachResume    Boolean        @default(true) @map("attach_resume")
+  /// Explicit user override of the company cooldown for this email.
+  overrideCooldown Boolean       @default(false) @map("override_cooldown")
+  warnings        Json           @default("[]")
+  status          OutreachStatus @default(DRAFT)
+  /// Only meaningful on the INITIAL email (thread root).
+  threadState     ThreadState    @default(NOT_SENT) @map("thread_state")
+  /// RFC 5322 Message-ID we generate — makes sending idempotent across retries.
+  messageIdHeader String         @unique @map("message_id_header")
+  gmailMessageId  String?        @map("gmail_message_id")
+  /// Gmail draft mirroring this email (created before approval).
+  gmailDraftId    String?        @map("gmail_draft_id")
+  draftMessageId  String?        @map("draft_message_id")
+  draftSyncedAt   DateTime?      @map("draft_synced_at")
+  draftSyncError  String?        @map("draft_sync_error")
+  gmailThreadId   String?        @map("gmail_thread_id")
+  approvedAt      DateTime?      @map("approved_at")
+  sentAt          DateTime?      @map("sent_at")
+  repliedAt       DateTime?      @map("replied_at")
+  sendAttempts    Int            @default(0) @map("send_attempts")
+  error           String?
+  aiGenerated     Boolean        @default(false) @map("ai_generated")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  application   Application    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  contact       Contact        @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  emailAccount  EmailAccount?  @relation(fields: [emailAccountId], references: [id], onDelete: SetNull)
+  resumeVersion ResumeVersion? @relation(fields: [resumeVersionId], references: [id], onDelete: SetNull)
+  root          Outreach?      @relation("OutreachThread", fields: [rootId], references: [id], onDelete: Cascade)
+  children      Outreach[]     @relation("OutreachThread")
+  followups     Followup[]     @relation("FollowupRoot")
+  followupOf    Followup?      @relation("FollowupEmail")
+  events        EmailEvent[]
+
+  @@unique([applicationId, contactId, sequence])
+  @@index([userId, status])
+  @@index([userId, threadState])
+  @@index([gmailThreadId])
+  @@index([userId, sentAt])
+  @@map("outreach")
+}
+
+model Followup {
+  id           String         @id @default(uuid()) @db.Uuid
+  userId       String         @map("user_id") @db.Uuid
+  rootId       String         @map("root_id") @db.Uuid
+  sequence     Int
+  scheduledAt  DateTime       @map("scheduled_at")
+  status       FollowupStatus @default(SCHEDULED)
+  outreachId   String?        @unique @map("outreach_id") @db.Uuid
+  cancelReason String?        @map("cancel_reason")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  root     Outreach  @relation("FollowupRoot", fields: [rootId], references: [id], onDelete: Cascade)
+  outreach Outreach? @relation("FollowupEmail", fields: [outreachId], references: [id], onDelete: SetNull)
+
+  @@unique([rootId, sequence])
+  @@index([status, scheduledAt])
+  @@map("followups")
+}
+
+model EmailAccount {
+  id              String             @id @default(uuid()) @db.Uuid
+  userId          String             @map("user_id") @db.Uuid
+  provider        EmailProviderKind
+  email           String
+  /// AES-256-GCM encrypted. Never logged.
+  accessTokenEnc  String?            @map("access_token_enc")
+  refreshTokenEnc String?            @map("refresh_token_enc")
+  tokenExpiresAt  DateTime?          @map("token_expires_at")
+  scopes          String?
+  status          EmailAccountStatus @default(CONNECTED)
+  lastSyncAt      DateTime?          @map("last_sync_at")
+  lastError       String?            @map("last_error")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outreach Outreach[]
+  events   EmailEvent[]
+
+  @@unique([userId, provider, email])
+  @@map("email_accounts")
+}
+
+model EmailEvent {
+  id                String         @id @default(uuid()) @db.Uuid
+  userId            String         @map("user_id") @db.Uuid
+  outreachId        String?        @map("outreach_id") @db.Uuid
+  emailAccountId    String?        @map("email_account_id") @db.Uuid
+  type              EmailEventType
+  providerMessageId String?        @map("provider_message_id")
+  threadId          String?        @map("thread_id")
+  fromEmail         String?        @map("from_email")
+  /// Short snippet only (<= 200 chars) — no full bodies stored.
+  snippet           String?
+  metadata          Json           @default("{}")
+  occurredAt        DateTime       @default(now()) @map("occurred_at")
+  createdAt         DateTime       @default(now()) @map("created_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outreach     Outreach?     @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  emailAccount EmailAccount? @relation(fields: [emailAccountId], references: [id], onDelete: SetNull)
+
+  @@unique([type, providerMessageId])
+  @@index([outreachId])
+  @@index([userId, type, occurredAt])
+  @@map("email_events")
+}
+
+/// Cache + audit of every LLM call. (userId, kind, inputHash) is the cache key.
+model AiGeneration {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  kind         AiKind
+  inputHash    String   @map("input_hash")
+  provider     String
+  model        String
+  status       AiStatus
+  output       Json?
+  error        String?
+  inputTokens  Int?     @map("input_tokens")
+  outputTokens Int?     @map("output_tokens")
+  latencyMs    Int      @map("latency_ms")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind, inputHash, status])
+  @@index([createdAt])
+  @@map("ai_generations")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  action     String
+  entityType String?  @map("entity_type")
+  entityId   String?  @map("entity_id")
+  metadata   Json     @default("{}")
+  requestId  String?  @map("request_id")
+  ip         String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
+/// Never email these addresses / domains (unsubscribe, bounces, manual).
+model Suppression {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  value     String
+  kind      String   @default("email")
+  reason    String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, value])
+  @@map("suppressions")
+}
+
+/// One automatic (or manual) discovery pass across all enabled sources.
+model DiscoveryRun {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  trigger    String
+  startedAt  DateTime  @default(now()) @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+  /// { sources, fetched, afterFilters, duplicates, created, relevant, prepared, errors[] }
+  stats      Json      @default("{}")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startedAt])
+  @@map("discovery_runs")
+}
+
+model Interview {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  applicationId String    @map("application_id") @db.Uuid
+  stage         String
+  scheduledAt   DateTime? @map("scheduled_at")
+  /// PENDING | PASSED | FAILED | CANCELLED
+  outcome       String    @default("PENDING")
+  notes         String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, scheduledAt])
+  @@map("interviews")
+}

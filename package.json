@@ -1,0 +1,22 @@
+{
+  "name": "job-hunter",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Personal AI career outreach agent",
+  "workspaces": ["apps/api", "apps/web"],
+  "engines": { "node": ">=20.9.0" },
+  "scripts": {
+    "dev:api": "npm run start:dev -w apps/api",
+    "dev:worker": "npm run worker:dev -w apps/api",
+    "dev:web": "npm run dev -w apps/web",
+    "build": "npm run build -w apps/api && npm run build -w apps/web",
+    "db:migrate": "npm run db:migrate -w apps/api",
+    "db:deploy": "npm run db:deploy -w apps/api",
+    "db:seed": "npm run db:seed -w apps/api",
+    "test": "npm run test -w apps/api",
+    "test:integration": "npm run test:integration -w apps/api",
+    "test:e2e": "npm run test:e2e -w apps/api",
+    "lint": "npm run lint -w apps/api && npm run lint -w apps/web",
+    "typecheck": "npm run typecheck -w apps/api && npm run typecheck -w apps/web"
+  }
+}
