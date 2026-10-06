@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, type Resume, type ResumeSource } from '@prisma/client';
+import { promises as fs } from 'fs';
 import { AuditService } from '../../common/audit.service';
 import { hashObject, sha256 } from '../../common/crypto';
 import { DomainError } from '../../common/http';
@@ -51,8 +52,26 @@ export class ResumeService {
     private readonly audit: AuditService,
   ) {}
 
-  /** The master resume; seeded from the candidate profile on first use. */
+  /**
+   * The master resume. Seeded from the candidate profile on first use; if candidate/resume.tex
+   * exists and no LaTeX has been uploaded yet, that file becomes the template automatically.
+   */
   async getMaster(userId: string): Promise<MasterResume> {
+    const master = await this.findOrCreateMaster(userId);
+    if (master.latexSource || master.source !== 'SEED') return master;
+    const file = await fs.readFile(this.profiles.resumeTexPath).catch(() => null);
+    if (!file) return master;
+    try {
+      const r = await this.uploadLatex(userId, [{ originalname: 'resume.tex', buffer: file, mimetype: 'application/x-tex' }]);
+      this.logger.log(`Using ${this.profiles.resumeTexPath} as the LaTeX resume template (compiled: ${r.compiled})`);
+    } catch (err) {
+      this.logger.warn(`Could not use ${this.profiles.resumeTexPath} as the resume template: ${(err as Error).message}`);
+      return master;
+    }
+    return this.findOrCreateMaster(userId);
+  }
+
+  private async findOrCreateMaster(userId: string): Promise<MasterResume> {
     const existing = await this.prisma.resume.findFirst({ where: { userId, isMaster: true, deletedAt: null }, orderBy: { updatedAt: 'desc' }, omit: OMIT_PDF });
     if (existing) return { ...existing, data: resumeDataSchema.parse(existing.data) };
     const data = resumeFromProfile(await this.profiles.get());
@@ -148,7 +167,7 @@ export class ResumeService {
       skills: derived.skills.length ? derived.skills : base.skills,
       education: derived.education.length ? derived.education : base.education,
     };
-    const master = await this.getMaster(userId);
+    const master = await this.findOrCreateMaster(userId);
     await this.prisma.resume.update({
       where: { id: master.id },
       data: {

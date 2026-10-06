@@ -43,8 +43,9 @@ Then, once:
 
 1. **Profile** — check `candidate/candidate-profile.md` (editable in the app). It is the source of
    truth for scoring and writing; anything not in it is never claimed.
-2. **Resume** → *Upload .tex* — your existing LaTeX resume (plus any `.cls/.sty/fonts`). It must
-   compile; the page shows the TeX log if it doesn't.
+2. **Resume** — your LaTeX resume lives in `candidate/resume.tex` and is used automatically as the
+   template (or use *Upload .tex* on the Resume page, plus any `.cls/.sty/fonts`). It must compile;
+   the page shows the TeX log if it doesn't.
 3. **Settings → Connect Gmail** (see below) and set `EMAIL_PROVIDER=gmail`.
 4. Optional: Claude for better analysis/writing (`AI_PROVIDER=anthropic`).
 
@@ -104,12 +105,17 @@ worker start, on sign-up, and on **Find jobs now**.
 
 ## Your LaTeX resume
 
-- Upload the `.tex` (and any `.cls/.sty/.bib/fonts/images`) on the Resume page. Engine is detected
+- `candidate/resume.tex` (next to the profile) becomes the template automatically the first time the
+  resume is used — no upload needed. Uploading a `.tex` on the Resume page replaces it; after
+  *Remove LaTeX* the file is not re-imported.
+- Or upload the `.tex` (and any `.cls/.sty/.bib/fonts/images`) on the Resume page. Engine is detected
   (`% !TEX program = xelatex`, `fontspec` → XeLaTeX; otherwise pdfLaTeX).
 - **Tailoring never redesigns.** The parser works on the document body only (preamble and comments
   untouched) and makes three kinds of change:
-  1. re-orders bullets inside each Experience/Projects list (most JD-relevant first),
-  2. re-orders items inside comma-separated skills lines ("Languages: …"),
+  1. re-orders bullets inside each Experience/Projects/Production Challenges list (most JD-relevant
+     first) — `\item` and custom item macros such as `\itemx{…}` / `\resumeItem{…}`,
+  2. re-orders items inside comma-separated skills lines ("Languages: …"); groups in parentheses
+     ("AWS (EC2, S3)") stay together and a trailing "; …" clause stays at the end,
   3. with Claude enabled: rephrases *plain-text* bullets toward the JD's wording — each rewrite must
      pass a truth guard (no new technologies, numbers, metrics or "led/owned/architected"), and
      bullets containing LaTeX formatting are never touched.

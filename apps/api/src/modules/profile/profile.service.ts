@@ -27,6 +27,11 @@ export class ProfileService {
     return this.env.candidateProfilePath;
   }
 
+  /** The candidate's own LaTeX resume, kept next to the profile (candidate/resume.tex). */
+  get resumeTexPath(): string {
+    return path.join(path.dirname(this.filePath), 'resume.tex');
+  }
+
   async readMarkdown(): Promise<string> {
     return fs.readFile(this.filePath, 'utf8');
   }
