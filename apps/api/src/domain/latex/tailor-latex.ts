@@ -105,7 +105,7 @@ export function tailorLatex(
     const idx = order(seg.items, (s) => weights.get(canonicalizeSkill(s.replace(/\s*\(.*\)$/, ''))) ?? 0);
     if (idx.every((v, i) => v === i)) continue;
     const sep = doc.source.slice(seg.start, seg.end).includes(', ') ? ', ' : ',';
-    edits.push({ start: seg.start, end: seg.end, replacement: idx.map((i) => seg.items[i]).join(sep) });
+    edits.push({ start: seg.start, end: seg.end, replacement: keepSentenceCase(seg.items, idx).join(sep) });
     changes.push({ section: 'skills', change: `Re-ordered skills: ${idx.slice(0, 4).map((i) => seg.items[i]).join(', ')}…`, reason: 'JD-relevant skills first (nothing added or removed)' });
   }
 
@@ -114,6 +114,19 @@ export function tailorLatex(
   }
 
   return { latex: edits.length ? applyEdits(source, edits) : source, changes, bullets, rejected };
+}
+
+/**
+ * Re-order a sentence-case list ("System design, distributed systems") without leaving a
+ * capital mid-line: the new first phrase gets the capital, the old one loses it.
+ * Proper nouns / acronyms ("PostgreSQL", "AWS") are never touched.
+ */
+function keepSentenceCase(items: string[], idx: number[]): string[] {
+  const out = idx.map((i) => items[i]);
+  const sentence = (s: string) => /^[A-Z][a-z]+(\s|$)/.test(s);
+  const lower = (s: string) => /^[a-z]+(\s|$)/.test(s);
+  if (idx[0] === 0 || !sentence(items[0]) || !lower(items[idx[0]])) return out;
+  return out.map((s, pos) => (pos === 0 ? s[0].toUpperCase() + s.slice(1) : idx[pos] === 0 ? s[0].toLowerCase() + s.slice(1) : s));
 }
 
 /** Line diff (LCS) for showing what changed between the master and tailored .tex. */

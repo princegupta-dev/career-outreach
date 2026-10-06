@@ -195,16 +195,40 @@ export function parseLatex(source: string): LatexDoc {
       const raw = m[0];
       const absStart = sec.start + m.index;
       const lead = /^\s*:?\s*/.exec(raw)![0];
-      const content = raw.slice(lead.length).replace(/\s+$/, '');
+      // A trailing clause after ";" ("…, automation; exploring RAG") stays where it is.
+      const content = raw.slice(lead.length).slice(0, topLevelIndex(raw.slice(lead.length), ';')).replace(/\s+$/, '');
       const before = masked.slice(Math.max(sec.start, absStart - 40), absStart + lead.length);
       if (!before.includes(':')) continue;
-      const items = content.split(',').map((x) => x.trim());
+      const items = splitTopLevel(content, ',').map((x) => x.trim());
       if (items.length < 2 || items.some((x) => !x)) continue;
       skillSegments.push({ section: sec.title, start: absStart + lead.length, end: absStart + lead.length + content.length, items });
     }
   }
 
   return { source, bodyStart, bodyEnd, sections, lists, skillSegments };
+}
+
+/** Index of the first `ch` outside parentheses/brackets (or the string length). */
+function topLevelIndex(s: string, ch: string): number {
+  let depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '(' || s[i] === '[') depth++;
+    else if ((s[i] === ')' || s[i] === ']') && depth > 0) depth--;
+    else if (s[i] === ch && depth === 0) return i;
+  }
+  return s.length;
+}
+
+/** Split on `sep` outside parentheses: "AWS (EC2, S3), Docker" → ["AWS (EC2, S3)", " Docker"]. */
+function splitTopLevel(s: string, sep: string): string[] {
+  const out: string[] = [];
+  let rest = s;
+  for (let i = topLevelIndex(rest, sep); i < rest.length; i = topLevelIndex(rest, sep)) {
+    out.push(rest.slice(0, i));
+    rest = rest.slice(i + 1);
+  }
+  out.push(rest);
+  return out;
 }
 
 function parseItems(source: string, masked: string, bodyStart: number, bodyEnd: number): LatexItem[] {
@@ -292,8 +316,8 @@ export function validateLatexUpload(source: string): string[] {
   return problems;
 }
 
-/** Bullet items of experience/project sections (the content that may be re-ordered). */
-export const REORDERABLE_SECTION = /experience|employment|work|project|professional|internship|career/i;
+/** Bullet items of experience/project/achievement sections (the content that may be re-ordered). */
+export const REORDERABLE_SECTION = /experience|employment|work|project|professional|internship|career|challenge|achievement|highlight/i;
 
 export interface LatexEdit {
   start: number;

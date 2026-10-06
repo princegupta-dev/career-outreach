@@ -133,3 +133,60 @@ describe('LaTeX tailoring (design-preserving)', () => {
     expect(lineDiff(SOURCE, SOURCE).every((x) => x.type === 'same')).toBe(true);
   });
 });
+
+describe("Prince's own resume (candidate/resume.tex)", () => {
+  const PRINCE = fs.readFileSync(path.resolve(__dirname, '../../../../../candidate/resume.tex'), 'utf8');
+  const backend = jobSkillWeights(
+    extractJob({ title: 'Senior Backend Engineer', description: 'Requirements: Node.js, PostgreSQL, Kafka, AWS, Docker, Kubernetes, Redis, TypeScript, idempotency, distributed systems.' }),
+  );
+  const result = tailorLatex(PRINCE, backend);
+  // Same lines in any order, with comma-separated parts in any order (skills are permuted in place).
+  const lowerLines = (s: string) =>
+    s
+      .toLowerCase()
+      .split('\n')
+      .map((l) => l.split(/, |\} |\\\\/).sort().join(', '))
+      .sort()
+      .join('\n');
+
+  it('keeps parenthesised groups and trailing ";" clauses intact in skills lines', () => {
+    const segs = parseLatex(PRINCE).skillSegments.map((s) => s.items);
+    expect(segs).toContainEqual(['AWS (EC2, RDS, S3, Lambda)', 'Docker', 'Kubernetes', 'Jenkins', 'CI/CD']);
+    expect(segs).toContainEqual(['LLM integration', 'AI-assisted workflows', 'content summarization', 'intelligent automation']);
+    expect(result.latex).toContain('AWS (EC2, RDS, S3, Lambda)');
+    expect(result.latex).toContain('intelligent automation; exploring RAG and AI agents\\\\');
+  });
+
+  it('tailors Experience, Production Challenges and project bullets (\\itemx) in place', () => {
+    const sections = result.changes.map((c) => c.change).join('\n');
+    expect(sections).toMatch(/Experience/);
+    expect(sections).toMatch(/Production Challenges/);
+    const exp = parseLatex(result.latex).lists.find((l) => l.section === 'Experience')!;
+    expect(exp.items).toHaveLength(9);
+    expect(exp.items.every((i) => i.macro === 'itemx' && i.simple)).toBe(true);
+  });
+
+  it('changes only order: preamble, macros and every line are preserved', () => {
+    const pre = (s: string) => s.slice(0, s.indexOf('\\begin{document}'));
+    expect(pre(result.latex)).toBe(pre(PRINCE));
+    expect(result.latex.length).toBe(PRINCE.length);
+    expect(lowerLines(result.latex)).toBe(lowerLines(PRINCE));
+  });
+
+  it('keeps sentence case when a lower-case skill moves to the front', () => {
+    expect(result.latex).toContain('\\textbf{Engineering:} Distributed systems, system design,');
+  });
+
+  it('rephrases a plain \\itemx bullet inside the macro and rejects invented tech', () => {
+    const b = result.bullets.find((x) => /Improve database access/.test(x.text))!;
+    const r = tailorLatex(PRINCE, backend, {
+      rewrites: [
+        { id: b.id, text: 'Improved API responsiveness and database access through SQL tuning, indexing, Redis caching, and efficient data-access patterns.' },
+        { id: result.bullets.find((x) => /Shopify APIs/.test(x.text))!.id, text: 'Integrated Shopify and Kafka event streams for 10M users.' },
+      ],
+    });
+    expect(r.latex).toContain('\\itemx{Improved API responsiveness and database access through SQL tuning, indexing, Redis caching, and efficient data-access patterns.}');
+    expect(r.rejected).toHaveLength(1);
+    expect(r.latex).not.toContain('Kafka');
+  });
+});
