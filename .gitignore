@@ -10,3 +10,4 @@ coverage/
 apps/api/storage/
 next-env.d.ts
 *.tsbuildinfo
+dump.rdb
