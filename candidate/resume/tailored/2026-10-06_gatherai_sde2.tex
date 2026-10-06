@@ -1,0 +1,112 @@
+% Prince Gupta - ATS-friendly resume
+\documentclass[letterpaper,10pt]{article}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage[hidelinks]{hyperref}
+\usepackage{enumitem}
+\usepackage[english]{babel}
+\input{glyphtounicode}
+\pdfgentounicode=1
+\pagestyle{empty}
+\addtolength{\oddsidemargin}{-.5in}
+\addtolength{\evensidemargin}{-.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.55in}
+\addtolength{\textheight}{1.05in}
+\raggedright
+\setlength{\tabcolsep}{0in}
+\titleformat{\section}{\vspace{-4pt}\scshape\raggedright\large}{}{0em}{}[\titlerule\vspace{-5pt}]
+\newcommand{\itemx}[1]{\item\small{#1\vspace{-2pt}}}
+\newcommand{\subheading}[4]{\item \textbf{#1}\hfill #2\\\textit{\small #3}\hfill\textit{\small #4}\vspace{-5pt}}
+\newcommand{\project}[2]{\item \small{\textbf{#1} $|$ \emph{#2}}\vspace{-5pt}}
+\begin{document}
+\begin{center}
+{\Huge \textbf{Prince Gupta}}\\ \vspace{3pt}
+\small Senior Software Engineer $|$ Backend \& Integrations (Node.js, NestJS) $|$ Gurgaon, India\\
+\small +91-8059258639 $|$ \href{mailto:pg150704@gmail.com}{pg150704@gmail.com} $|$
+\href{https://www.linkedin.com/in/princegupta-dev}{LinkedIn} $|$
+\href{https://github.com/princegupta-dev}{GitHub}
+\end{center}
+
+\section{Summary}
+\small{Software Engineer with 3+ years of experience building production backend systems, APIs, integrations, and AI-enabled workflows using Node.js, TypeScript, and NestJS. Experienced in production debugging across Redis, background queues, OTP/SMS integrations, database performance, migrations, and Shopify synchronization. Strong in investigating failures end-to-end, learning unfamiliar systems quickly, and improving reliability through practical engineering.}
+
+\section{Technical Skills}
+\begin{itemize}[leftmargin=.15in,label={}]
+\small{\item{
+\textbf{Backend:} Node.js, NestJS, Express.js, REST APIs, GraphQL, microservices\\
+\textbf{Databases \& Caching:} PostgreSQL, MySQL, MongoDB, Redis, indexing, query optimization\\
+\textbf{Messaging \& Systems:} BullMQ, asynchronous processing, event-driven workflows, retries, idempotency, failure recovery\\
+\textbf{Cloud \& Delivery:} AWS (EC2, RDS, S3, Lambda), Docker, Kubernetes, Jenkins, CI/CD\\
+\textbf{Languages:} JavaScript, TypeScript, SQL, Python, Java, C++\\
+\textbf{AI / GenAI:} LLM integration, AI-assisted workflows, content summarization, intelligent automation; exploring RAG and AI agents\\
+\textbf{Frontend:} React.js, Next.js, HTML5, CSS3, API integration\\
+\textbf{Engineering:} System design, distributed systems, concurrency, networking, observability, production debugging
+}}
+\end{itemize}
+
+\section{Experience}
+\begin{itemize}[leftmargin=.15in,label={}]
+\subheading{Senior Software Engineer}{May 2023 -- Present}{Tech Almond Solutions Pvt. Ltd. (Almonds.ai)}{Gurgaon, India}
+\begin{itemize}[leftmargin=.18in]
+\itemx{Build and maintain production services using Node.js, TypeScript, and NestJS for enterprise loyalty, engagement, and e-commerce platforms.}
+\itemx{Integrate Shopify APIs, payment gateways, OTP/SMS providers, IVR platforms, and other enterprise services.}
+\itemx{Build asynchronous workflows using queues, retries, and failure handling so unreliable third-party services do not unnecessarily block request processing.}
+\itemx{Design REST and GraphQL APIs, reusable service modules, data models, and integrations for business-critical workflows.}
+\itemx{Improve database access and API responsiveness through SQL tuning, indexing, Redis caching, and efficient data-access patterns.}
+\itemx{Collaborate on Docker, AWS, Jenkins, and Kubernetes workflows; investigate incidents across queues, Redis, databases, and integrations.}
+\itemx{Contribute to configurable, multi-tenant backend modules supporting different client workflows without duplicating core logic.}
+\itemx{Develop React-based product features and connect user-facing workflows with authenticated backend APIs.}
+\itemx{Implement LLM/GenAI-enabled workflows for loyalty-platform automation, including AI-assisted processing and content summarization.}
+\end{itemize}
+\end{itemize}
+
+\section{Production Challenges}
+\begin{itemize}[leftmargin=.18in]
+\itemx{\textbf{Third-party service failures:} Built or maintained asynchronous integration workflows with retries and failure handling so transient provider issues can be investigated and recovered without unnecessarily blocking user-facing requests.}
+\itemx{\textbf{Retry safety and duplicate events:} Considered duplicate delivery and repeated processing in queue and webhook workflows; use idempotency controls and state validation where implemented to prevent duplicate business actions.}
+\itemx{\textbf{Shopify webhook reliability:} Worked on failure logging and reprocessing workflows for synchronization events, accounting for retries and duplicate webhook delivery.}
+\itemx{\textbf{Background jobs not processing:} Investigated queue incidents across job state, worker execution, Redis connectivity, and retry behavior to distinguish enqueueing problems from worker-side failures.}
+\itemx{\textbf{Slow database queries:} Analysed query access patterns and indexes, then optimized query patterns and indexing to reduce execution time and unnecessary database work.}
+\itemx{\textbf{Incomplete database migration:} Compared source and destination schemas and table inventories after several tables were missed; validated migration completeness rather than relying only on the migration command status.}
+\itemx{\textbf{Redis Cluster key-slot errors:} Investigated \texttt{CROSSSLOT} failures in multi-key operations by tracing key patterns and Cluster slot constraints; evaluated hash-tag-aware key design for operations that require related keys in the same slot.}
+\itemx{\textbf{Concurrent reward allocation:} Worked with Redis-backed reservation counters and reward limits, where concurrent requests require careful coordination to avoid exceeding campaign allocations.}
+\itemx{\textbf{OTP and SMS inconsistencies:} Debugged flows across request validation, OTP expiry/state in Redis, queue processing, environment configuration, and provider responses to isolate application failures from delivery-provider issues.}
+\itemx{\textbf{LLM output reliability:} Integrated LLM-powered automation into loyalty workflows; validate and handle model responses at the application boundary before using them in downstream business processes.}
+\end{itemize}
+
+\section{Selected Projects}
+\begin{itemize}[leftmargin=.15in,label={}]
+\project{GPI -- Loyalty \& Productivity Platform}{Node.js, TypeScript, NestJS, Redis, AWS, Kubernetes}
+\begin{itemize}[leftmargin=.18in]
+\itemx{Built backend modules for loyalty and productivity workflows used by field users and retailers.}
+\itemx{Developed OTP- and IVR-based authentication flows integrated with SMS gateways and verification workflows.}
+\itemx{Created reusable modules and configurable workflows for multi-client deployments; contributed to Redis-backed reward-processing logic.}
+\end{itemize}
+\project{Fills -- Shopify-Integrated Marketplace}{Node.js, TypeScript, Shopify APIs, Redis, AWS}
+\begin{itemize}[leftmargin=.18in]
+\itemx{Built backend integrations for product, variant, inventory, and order synchronization between the marketplace and Shopify.}
+\itemx{Developed webhook-processing workflows with failure logging and recovery/reprocessing paths for unsuccessful events.}
+\end{itemize}
+\project{HCCB DMC -- Driver Management System}{Node.js, MySQL, Redis, Docker, Firebase}
+\begin{itemize}[leftmargin=.18in]
+\itemx{Built backend functionality for Coca-Cola driver-management workflows and operational processes.}
+\itemx{Optimized SQL queries and indexing strategies to improve database execution performance.}
+\itemx{Implemented secure data exchange using asymmetric cryptography mechanisms.}
+\end{itemize}
+\project{Loyalty Platform -- LLM / GenAI Automation}{Node.js, TypeScript, NestJS, LLM integration}
+\begin{itemize}[leftmargin=.18in]
+\itemx{Implemented LLM-enabled workflows in a loyalty platform to automate selected content-processing and summarization tasks.}
+\itemx{Integrated AI processing into backend workflows while keeping application services responsible for orchestration and business logic.}
+\itemx{Considered failure handling and operational fit when incorporating AI-assisted processing into existing workflows.}
+\end{itemize}
+\end{itemize}
+
+\section{Current Learning}
+\small{Deepening practical knowledge of React and full-stack architecture; RAG, embeddings, vector search, and AI-agent patterns; database internals and query execution; distributed systems, concurrency, networking, and production observability. Strengthening system design through the study of failure modes, scalability, reliability, and architectural trade-offs.}
+
+\section{Education}
+\begin{itemize}[leftmargin=.15in,label={}]
+\subheading{Indira Gandhi University (IGU)}{Haryana, India}{Bachelor of Technology in Computer Science Engineering}{2019 -- 2023}
+\end{itemize}
+\end{document}
