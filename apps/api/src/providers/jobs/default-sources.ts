@@ -68,3 +68,12 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
     ] as Array<[JobProviderKind, string, string, string]>
   ).map(([provider, boardToken, companyName, domain]) => ({ provider, name: companyName, config: { boardToken, companyName, domain } })),
 ];
+
+/** Title keywords never worth discovering: other stacks/disciplines and levels outside the target (new-grad, junior, staff+, management). */
+export const DEFAULT_EXCLUDE_TITLES = [
+  'frontend', 'front-end', 'front end', 'ios', 'android', 'mobile', 'intern', 'designer', 'sales', 'marketing', 'recruiter',
+  'data scientist', 'qa', 'test engineer', 'in test', 'sdet', 'test automation', 'quality engineer', 'support engineer', 'solutions engineer', 'sales engineer', 'customer engineer',
+  'manager', 'director', 'head of', 'vp', 'vice president', 'principal', 'distinguished', 'staff', 'new grad', 'new-grad', 'newgrad', 'graduate', 'early career', 'early-career', 'junior', 'jr', 'entry level', 'entry-level', 'fresher', 'university', 'campus', 'machine learning', 'ml engineer',
+  'research', 'firmware', 'embedded', 'hardware', 'security engineer', 'data engineer', 'analytics engineer', 'game', 'unity',
+  'salesforce', 'sap', '.net', 'java', 'golang', 'rust', 'c++', 'php', 'ruby', 'scala', 'kotlin', 'swift', 'flutter',
+];

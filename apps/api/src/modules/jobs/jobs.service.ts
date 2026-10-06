@@ -14,7 +14,7 @@ import { AshbyProvider, GreenhouseProvider, LeverProvider } from '../../provider
 import { JobProvider, JobProviderError, JobSearchCriteria, passesBasicFilters, ProviderJob } from '../../providers/jobs/job-provider.interface';
 import { UrlJobProvider } from '../../providers/jobs/url.provider';
 import { FEED_PROVIDERS } from '../../providers/jobs/aggregators';
-import { DEFAULT_SOURCES } from '../../providers/jobs/default-sources';
+import { DEFAULT_EXCLUDE_TITLES, DEFAULT_SOURCES } from '../../providers/jobs/default-sources';
 import { ContactsService } from '../contacts/contacts.service';
 import { AiService } from '../ai/ai.service';
 import { AnalyticsService } from '../analytics/analytics.service';
@@ -51,13 +51,6 @@ export interface ManualJobInput {
   remote?: boolean | null;
 }
 
-const DEFAULT_EXCLUDE = [
-  'frontend', 'front-end', 'front end', 'ios', 'android', 'mobile', 'intern', 'designer', 'sales', 'marketing', 'recruiter',
-  'data scientist', 'qa', 'test engineer', 'in test', 'sdet', 'test automation', 'quality engineer', 'support engineer', 'solutions engineer', 'sales engineer', 'customer engineer',
-  'manager', 'director', 'head of', 'vp', 'vice president', 'principal', 'distinguished', 'staff', 'new grad', 'graduate', 'early career', 'junior', 'entry level', 'university', 'campus', 'machine learning', 'ml engineer',
-  'research', 'firmware', 'embedded', 'hardware', 'security engineer', 'data engineer', 'analytics engineer', 'game', 'unity',
-  'salesforce', 'sap', '.net', 'java', 'golang', 'rust', 'c++', 'php', 'ruby', 'scala', 'kotlin', 'swift', 'flutter',
-];
 
 @Injectable()
 export class JobsService {
@@ -186,7 +179,7 @@ export class JobsService {
     const job = await this.prisma.job.findUniqueOrThrow({ where: { id: jobId }, include: { company: true, application: true } });
     const profile = await this.profiles.get();
     const settingsHash = await this.settings.hash(job.userId);
-    const scoredWith = hashObject({ profile: profile.hash, settings: settingsHash, content: job.contentHash, company: [job.company.size, job.company.companyType], v: 'v2' });
+    const scoredWith = hashObject({ profile: profile.hash, settings: settingsHash, content: job.contentHash, company: [job.company.size, job.company.companyType], v: 'v3' });
     if (!force && job.scoredWith === scoredWith && job.score != null) return { score: job.score, recommendation: job.recommendation, skipped: true };
 
     const extraction = extractJob({ title: job.title, description: job.description, location: job.location, companyName: job.company.name });
@@ -265,7 +258,7 @@ export class JobsService {
     const titleKeywords = [...new Set([...fromRoles, 'backend', 'back-end', 'back end', 'node', 'typescript', 'platform', 'software engineer', 'software developer', 'sde', 'server', 'full stack', 'fullstack', 'api'])];
     // Never exclude a stack the candidate actually has.
     const own = profile.strongSkills.map((x) => x.toLowerCase());
-    const exclude = DEFAULT_EXCLUDE.filter((k) => !own.includes(k.trim()));
+    const exclude = DEFAULT_EXCLUDE_TITLES.filter((k) => !own.includes(k.trim()));
     const maxAge = userId ? (await this.settings.get(userId)).discovery.maxAgeDays : 30;
     return {
       titleKeywords,

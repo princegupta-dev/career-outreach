@@ -100,7 +100,7 @@ export class OutreachService {
     const style = opts.style ?? (existing?.style as GenerateOptions['style']) ?? settings.outreach.defaultStyle;
     const attachResume = opts.attachResume ?? existing?.attachResume ?? true;
     const job = app.job;
-    const extraction = (job.extracted as unknown as JobExtraction | null) ?? extractJob({ title: job.title, description: job.description, location: job.location });
+    const extraction = (job.extracted as unknown as JobExtraction | null) ?? extractJob({ title: job.title, description: job.description, location: job.location, companyName: job.company.name });
     const match = job.scoreBreakdown as unknown as MatchResult | null;
     const facts = ((job.company.research as unknown as CompanyFact[] | null) ?? []).slice(0, 3);
     const jobSkills = [...extraction.requiredSkills, ...extraction.preferredSkills];
@@ -189,8 +189,8 @@ export class OutreachService {
     const o = await this.getOwned(userId, id);
     if (!['DRAFT', 'APPROVED', 'FAILED'].includes(o.status)) throw new DomainError(`Cannot edit an email that is ${o.status.toLowerCase()}`, 409);
     if (patch.toEmail && o.kind === 'FOLLOWUP') throw new DomainError('Follow-ups go to the original recipient', 400);
-    const job = await this.prisma.job.findFirstOrThrow({ where: { application: { id: o.applicationId } } });
-    const ex = (job.extracted as unknown as JobExtraction | null) ?? extractJob({ title: job.title, description: job.description });
+    const job = await this.prisma.job.findFirstOrThrow({ where: { application: { id: o.applicationId } }, include: { company: true } });
+    const ex = (job.extracted as unknown as JobExtraction | null) ?? extractJob({ title: job.title, description: job.description, companyName: job.company.name });
     const subject = patch.subject ?? o.subject;
     const body = patch.body ?? o.body;
     const check = checkVoice({ subject: o.kind === 'FOLLOWUP' ? subject || 'Re' : subject, body }, await this.voiceRules([...ex.requiredSkills, ...ex.preferredSkills], o.kind === 'INITIAL' ? INITIAL_RULES : FOLLOWUP_RULES));
@@ -569,7 +569,7 @@ export class OutreachService {
     const profile = await this.profiles.get();
     const settings = await this.settings.get(f.userId);
     const job = f.root.application.job;
-    const ex = (job.extracted as unknown as JobExtraction | null) ?? extractJob({ title: job.title, description: job.description });
+    const ex = (job.extracted as unknown as JobExtraction | null) ?? extractJob({ title: job.title, description: job.description, companyName: job.company.name });
     const jobSkills = [...ex.requiredSkills, ...ex.preferredSkills];
     const previous = await this.prisma.outreach.findMany({ where: { OR: [{ id: f.rootId }, { rootId: f.rootId }], status: 'SENT' }, orderBy: { sequence: 'asc' } });
     const usedFacts = previous.flatMap((p) => ((p.warnings as unknown as { usedFact?: string })?.usedFact ? [(p.warnings as unknown as { usedFact: string }).usedFact] : []));

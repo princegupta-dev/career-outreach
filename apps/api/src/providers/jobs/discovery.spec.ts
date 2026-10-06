@@ -1,6 +1,6 @@
 import { cumulativeDays, relativeDays, resolveSettings } from '../../domain/settings';
 import { extractEmails, parseArbeitnow, parseHimalayas, parseHnComment, parseJobicy, parseRemoteOk, parseRemotive, parseWwrRss } from './aggregators';
-import { DEFAULT_SOURCES } from './default-sources';
+import { DEFAULT_EXCLUDE_TITLES, DEFAULT_SOURCES } from './default-sources';
 import { passesBasicFilters, remoteRegionOk, titleHas } from './job-provider.interface';
 
 const criteria = {
@@ -34,6 +34,25 @@ describe('basic discovery filters', () => {
     expect(passesBasicFilters({ ...base, location: 'Berlin, Germany', remote: false }, criteria, now)).toBe(false);
     expect(passesBasicFilters({ ...base, location: 'Berlin, Germany', remote: false }, { ...criteria, allowRelocation: true }, now)).toBe(true);
     expect(passesBasicFilters({ ...base, postedAt: new Date('2026-08-01') }, criteria, now)).toBe(false);
+  });
+
+  it('drops new-grad, junior and staff+ titles with the default exclusions', () => {
+    const c = { ...criteria, excludeTitleKeywords: DEFAULT_EXCLUDE_TITLES };
+    const base = { title: 'Senior Backend Engineer', location: 'Remote (Worldwide)', remote: true, postedAt: new Date('2026-10-01') };
+    expect(passesBasicFilters(base, c, now)).toBe(true);
+    for (const title of [
+      'Software Engineer, New Grad (2027)',
+      'New-Grad Backend Engineer',
+      'Junior Backend Developer',
+      'Jr. Node.js Engineer',
+      'Entry-Level Software Engineer',
+      'Early-Career Backend Engineer',
+      'Staff Backend Engineer',
+      'Senior Staff Software Engineer, Platform',
+      'Principal Backend Engineer',
+    ]) {
+      expect([title, passesBasicFilters({ ...base, title }, c, now)]).toEqual([title, false]);
+    }
   });
 
   it('matches keywords on token boundaries', () => {
