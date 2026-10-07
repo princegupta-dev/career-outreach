@@ -100,16 +100,24 @@ skills:
     - Observability
     - Shopify
     - Database Migrations
+    # Production LLM-enabled workflows in a loyalty platform (summarization / content processing) — see resume.
+    - GenAI
   # Skills with some exposure but not primary professional use.
-  partial: []
-  # Skills you are actively learning (shown honestly as "learning").
-  learning: []
+  # React: React-based product features (resume). Kubernetes: collaborates on K8s workflows (resume).
+  partial:
+    - React
+    - Kubernetes
+  # Skills you are actively learning (shown honestly as "learning"). Resume: "exploring RAG and AI agents".
+  learning:
+    - RAG
+    - Vector Databases
 
 domains:
   - Loyalty platforms
   - E-commerce systems
   - Campaign systems
   - Driver / fleet management
+  - Backend platforms
 
 projects:
   - name: DMC — Driver Management & Control

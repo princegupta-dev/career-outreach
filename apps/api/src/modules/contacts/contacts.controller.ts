@@ -9,6 +9,7 @@ import { ContactsService } from './contacts.service';
 
 const ROLES = ['HIRING_MANAGER', 'ENGINEERING_MANAGER', 'TECHNICAL_RECRUITER', 'ENGINEERING_DIRECTOR', 'RECRUITER', 'HR', 'FOUNDER', 'CTO', 'ENGINEER', 'OTHER'] as const;
 const CONFIDENCE = ['VERIFIED', 'LIKELY', 'UNVERIFIED', 'UNKNOWN'] as const;
+const VERIFICATION = ['UNKNOWN', 'PUBLICLY_LISTED', 'VERIFIED', 'INVALID', 'BOUNCED'] as const;
 
 const contactSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -19,6 +20,8 @@ const contactSchema = z.object({
   notes: z.string().max(2000).nullish(),
   confidence: z.enum(CONFIDENCE).optional(),
   sourceUrl: z.string().trim().url().max(1000).nullish().or(z.literal('').transform(() => null)),
+  /** PUBLICLY_LISTED / VERIFIED require the public page the address is published on (sourceUrl). */
+  verificationStatus: z.enum(VERIFICATION).optional(),
 });
 
 const companySchema = z.object({
@@ -30,7 +33,7 @@ const companySchema = z.object({
 });
 
 const statusSchema = z.object({
-  status: z.enum(['DISCOVERED', 'QUALIFIED', 'SHORTLISTED', 'CONTACT_FOUND', 'RESUME_READY', 'EMAIL_READY', 'EMAIL_SENT', 'WAITING_FOR_REPLY', 'FOLLOWUP_SCHEDULED', 'REPLIED', 'INTERVIEW', 'REJECTED', 'OFFER', 'CLOSED']),
+  status: z.enum(['DISCOVERED', 'QUALIFIED', 'SHORTLISTED', 'CONTACT_FOUND', 'RESUME_READY', 'EMAIL_READY', 'EMAIL_SENT', 'WAITING_FOR_REPLY', 'FOLLOWUP_SCHEDULED', 'REPLIED', 'INTERVIEW', 'REJECTED', 'OFFER', 'CLOSED', 'APPLIED', 'SKIPPED']),
   note: z.string().max(2000).optional(),
 });
 

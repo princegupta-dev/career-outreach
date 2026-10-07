@@ -1,4 +1,4 @@
-import type { ContactConfidence, ContactRole } from '@prisma/client';
+import type { ContactConfidence, ContactRole, ContactSourceType, EmailVerificationStatus } from '@prisma/client';
 import { categorizeRole } from '../../domain/contacts/rank';
 import { fetchJson } from '../http';
 
@@ -11,7 +11,14 @@ export interface ContactCandidate {
   source: string;
   sourceUrl?: string | null;
   confidence: ContactConfidence;
+  /** Kind of public source the address was found on. */
+  sourceType: ContactSourceType;
+  /** PUBLICLY_LISTED when the company published it; VERIFIED only with an independent check. */
+  verificationStatus: EmailVerificationStatus;
 }
+
+/** Status of the contact-discovery attempt for a job. */
+export type ContactDiscoveryStatus = 'FOUND' | 'EMAIL_NOT_FOUND';
 
 export interface ContactSearchInput {
   companyName: string;
@@ -58,6 +65,8 @@ export class JobPostingContactProvider implements ContactProvider {
         source: this.name,
         sourceUrl: input.jobUrl ?? null,
         confidence: 'VERIFIED',
+        sourceType: 'JOB_POSTING',
+        verificationStatus: 'PUBLICLY_LISTED',
       });
     }
     return out;
@@ -96,11 +105,14 @@ export class HunterContactProvider implements ContactProvider {
     const res = await fetchJson<{ data?: { emails?: HunterEmail[] } }>(`https://api.hunter.io/v2/domain-search?${params}`, {
       headers: { 'X-API-KEY': this.apiKey },
     });
+    // Only addresses Hunter found published on public web pages are kept. Pattern-derived
+    // guesses (no `sources`) are dropped — we never email an address nobody published.
     return (res.data?.emails ?? [])
-      .filter((e) => e.value && (e.first_name || e.type === 'generic'))
+      .filter((e) => e.value && (e.first_name || e.type === 'generic') && (e.sources ?? []).some((s) => !!s.uri))
       .map((e) => {
         const status = e.verification?.status;
         const confidence: ContactConfidence = status === 'valid' ? 'VERIFIED' : (e.confidence ?? 0) >= 80 ? 'LIKELY' : 'UNVERIFIED';
+        const verificationStatus: EmailVerificationStatus = status === 'invalid' ? 'INVALID' : status === 'valid' ? 'VERIFIED' : 'PUBLICLY_LISTED';
         const name = [e.first_name, e.last_name].filter(Boolean).join(' ') || `${input.companyName} team`;
         return {
           name,
@@ -109,19 +121,29 @@ export class HunterContactProvider implements ContactProvider {
           email: e.value.toLowerCase(),
           linkedinUrl: e.linkedin ? (e.linkedin.startsWith('http') ? e.linkedin : `https://www.linkedin.com/in/${e.linkedin}`) : null,
           source: this.name,
-          sourceUrl: e.sources?.[0]?.uri ?? null,
+          sourceUrl: e.sources?.find((s) => !!s.uri)?.uri ?? null,
           confidence,
+          sourceType: 'DATA_PROVIDER' as const,
+          verificationStatus,
         };
       });
   }
 }
 
 const HIRING_INBOX = /^(careers?|jobs?|hiring|talent|recruit(ing|ment|ers?)?|hr|people|join(us)?|work(withus)?|apply|engineering-jobs|tech-jobs)$/i;
+const GENERAL_INBOX = /^(hello|info|contact|team)$/i;
+
+function sourceTypeForPath(path: string): ContactSourceType {
+  if (/^\/(careers?|jobs)/.test(path)) return 'CAREERS_PAGE';
+  if (/^\/contact/.test(path)) return 'CONTACT_PAGE';
+  return 'COMPANY_WEBSITE';
+}
 
 /**
- * Hiring inboxes the company publishes on its own website (mailto links on the
- * home / careers / jobs / contact pages). Only role inboxes on the company's
- * own domain are returned — never personal addresses, never guesses.
+ * Inboxes the company publishes on its own website (mailto links / text on the
+ * careers, jobs, contact and home pages). Only role inboxes on the company's own
+ * domain are returned — never personal addresses, never guesses. A general
+ * address (hello@/info@/contact@) is returned only when no hiring inbox exists.
  */
 export class CompanyWebsiteContactProvider implements ContactProvider {
   readonly name = 'company_website';
@@ -132,7 +154,8 @@ export class CompanyWebsiteContactProvider implements ContactProvider {
   async findContacts(input: ContactSearchInput): Promise<ContactCandidate[]> {
     if (!input.domain) return [];
     const domain = input.domain.replace(/^www\./, '').toLowerCase();
-    const out = new Map<string, ContactCandidate>();
+    const hiring = new Map<string, ContactCandidate>();
+    const general = new Map<string, ContactCandidate>();
     for (const path of ['/careers', '/jobs', '/contact', '/']) {
       const url = `https://${domain}${path}`;
       const html = await this.fetchPage(url).catch(() => null);
@@ -143,19 +166,35 @@ export class CompanyWebsiteContactProvider implements ContactProvider {
       for (const email of emails) {
         const [local, host] = email.split('@');
         if (!host || !(host === domain || host.endsWith(`.${domain}`))) continue;
-        if (!HIRING_INBOX.test(local) || out.has(email)) continue;
-        out.set(email, {
-          name: `${input.companyName} hiring team`,
-          role: 'Hiring inbox (published on company website)',
-          roleCategory: 'RECRUITER',
-          email,
-          source: this.name,
-          sourceUrl: url,
-          confidence: 'VERIFIED',
-        });
+        const sourceType = sourceTypeForPath(path);
+        if (HIRING_INBOX.test(local) && !hiring.has(email)) {
+          hiring.set(email, {
+            name: `${input.companyName} hiring team`,
+            role: `Hiring inbox (published on ${url})`,
+            roleCategory: 'RECRUITER',
+            email,
+            source: this.name,
+            sourceUrl: url,
+            confidence: 'VERIFIED',
+            sourceType,
+            verificationStatus: 'PUBLICLY_LISTED',
+          });
+        } else if (GENERAL_INBOX.test(local) && !general.has(email)) {
+          general.set(email, {
+            name: `${input.companyName}`,
+            role: `General company contact (published on ${url})`,
+            roleCategory: 'OTHER',
+            email,
+            source: this.name,
+            sourceUrl: url,
+            confidence: 'VERIFIED',
+            sourceType,
+            verificationStatus: 'PUBLICLY_LISTED',
+          });
+        }
       }
-      if (out.size) break;
+      if (hiring.size) break;
     }
-    return [...out.values()];
+    return hiring.size ? [...hiring.values()] : [...general.values()];
   }
 }

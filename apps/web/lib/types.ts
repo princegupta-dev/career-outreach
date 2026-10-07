@@ -12,7 +12,9 @@ export type ApplicationStatus =
   | 'INTERVIEW'
   | 'REJECTED'
   | 'OFFER'
-  | 'CLOSED';
+  | 'CLOSED'
+  | 'APPLIED'
+  | 'SKIPPED';
 
 export const STATUSES: ApplicationStatus[] = [
   'DISCOVERED',
@@ -21,6 +23,7 @@ export const STATUSES: ApplicationStatus[] = [
   'CONTACT_FOUND',
   'RESUME_READY',
   'EMAIL_READY',
+  'APPLIED',
   'EMAIL_SENT',
   'WAITING_FOR_REPLY',
   'FOLLOWUP_SCHEDULED',
@@ -29,6 +32,7 @@ export const STATUSES: ApplicationStatus[] = [
   'REJECTED',
   'OFFER',
   'CLOSED',
+  'SKIPPED',
 ];
 
 export type Recommendation = 'STRONG_APPLY' | 'APPLY' | 'CONSIDER' | 'LOW_PRIORITY' | 'SKIP';

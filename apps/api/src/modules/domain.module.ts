@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AiService } from './ai/ai.service';
 import { AnalyticsService } from './analytics/analytics.service';
 import { ApplicationsService } from './applications/applications.service';
+import { PipelineService } from './applications/pipeline.service';
 import { CompaniesService } from './companies/companies.service';
 import { ContactsService } from './contacts/contacts.service';
 import { DiscoveryService } from './discovery/discovery.service';
@@ -28,6 +29,7 @@ const SERVICES = [
   FollowupsService,
   JobsService,
   OutreachService,
+  PipelineService,
   ProfileService,
   ResumeService,
   SettingsService,

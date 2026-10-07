@@ -2,8 +2,9 @@ import type { CompanySize, Recommendation } from '@prisma/client';
 import type { CandidateProfile } from '../profile/profile';
 import { JobExtraction, RoleFamily, Seniority, salaryInLpa } from '../skills/extract';
 import { getSkill } from '../skills/taxonomy';
+import { currentEmployerMatcher } from '../outreach/guardrails';
 
-export const SCORE_VERSION = 'v1';
+export const SCORE_VERSION = 'v2';
 
 export type MatchLevel = 'strong' | 'partial' | 'learning' | 'missing';
 
@@ -15,8 +16,29 @@ export interface SkillMatch {
   via?: string;
 }
 
+export type ComponentKey = 'technical' | 'seniority' | 'role' | 'location' | 'compensation' | 'ai' | 'company' | 'freshness';
+
+/** Simple three-way decision exposed to dashboards / automation. */
+export type Decision = 'APPLY' | 'CONSIDER' | 'SKIP';
+
+/** Flat breakdown in the shape the dashboard API returns. */
+export interface ScoreBreakdown {
+  score: number;
+  technical_score: number;
+  seniority_score: number;
+  role_score: number;
+  location_score: number;
+  compensation_score: number;
+  ai_score: number;
+  company_score: number;
+  freshness_score: number;
+  strong_matches: string[];
+  gaps: string[];
+  recommendation: Decision;
+}
+
 export interface ScoreComponent {
-  key: 'role' | 'experience' | 'skills' | 'seniority' | 'location' | 'salary' | 'company';
+  key: ComponentKey;
   label: string;
   score: number;
   max: number;
@@ -34,6 +56,8 @@ export interface MatchResult {
   missing: string[];
   reasons: string[];
   flags: string[];
+  decision: Decision;
+  breakdown: ScoreBreakdown;
 }
 
 export interface ScoringJob {
@@ -43,9 +67,21 @@ export interface ScoringJob {
   companySize?: CompanySize | null;
   companyType?: string | null;
   extraction: JobExtraction;
+  /** Used for the freshness component. Unknown dates get a neutral score. */
+  postedAt?: Date | null;
 }
 
+/** Final weights (sum = 100). */
+export const WEIGHTS: Record<ComponentKey, number> = { technical: 30, seniority: 20, role: 15, location: 10, compensation: 10, ai: 5, company: 5, freshness: 5 };
+
+/** Raw sub-scores (computed on their own scales, then rescaled to WEIGHTS). */
 const MAX = { role: 20, experience: 15, skills: 25, seniority: 10, location: 10, salary: 10, company: 10 } as const;
+
+interface RawComponent {
+  score: number;
+  max: number;
+  reason: string;
+}
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
@@ -63,7 +99,7 @@ export function classifySkill(skill: string, profile: CandidateProfile): { level
   return { level: 'missing' };
 }
 
-function scoreRole(title: string, family: RoleFamily, profile: CandidateProfile): ScoreComponent {
+function scoreRole(title: string, family: RoleFamily, profile: CandidateProfile): RawComponent {
   const t = norm(title);
   const exactTarget = profile.target_roles.find((r) => {
     const nr = norm(r).replace(/^senior /, '');
@@ -88,11 +124,11 @@ function scoreRole(title: string, family: RoleFamily, profile: CandidateProfile)
     score = MAX.role;
     reason = `Title matches target role "${exactTarget}"`;
   }
-  return { key: 'role', label: 'Role match', score, max: MAX.role, reason };
+  return { score, max: MAX.role, reason };
 }
 
-function scoreExperience(ex: JobExtraction, years: number): ScoreComponent {
-  const base = { key: 'experience' as const, label: 'Experience', max: MAX.experience };
+function scoreExperience(ex: JobExtraction, years: number): RawComponent {
+  const base = { max: MAX.experience };
   if (ex.minYears == null) return { ...base, score: 11, reason: 'No explicit years requirement found' };
   const gap = ex.minYears - years;
   if (gap <= 0) {
@@ -106,8 +142,8 @@ function scoreExperience(ex: JobExtraction, years: number): ScoreComponent {
   return { ...base, score: 1, reason: `Asks for ${ex.minYears}+ years; you have ~${years} (significant gap)` };
 }
 
-function scoreSkills(matches: SkillMatch[]): ScoreComponent {
-  const base = { key: 'skills' as const, label: 'Technical skills', max: MAX.skills };
+function scoreSkills(matches: SkillMatch[]): RawComponent {
+  const base = { max: MAX.skills };
   if (!matches.length) return { ...base, score: 12, reason: 'No recognisable technologies in the description' };
   const value = (m: SkillMatch) => (m.level === 'strong' ? 1 : m.level === 'partial' ? 0.5 : m.level === 'learning' ? 0.2 : 0);
   const weight = (m: SkillMatch) => (m.required ? 1 : 0.4) * (getSkill(m.skill)?.core ? 1.3 : 1);
@@ -123,8 +159,8 @@ function scoreSkills(matches: SkillMatch[]): ScoreComponent {
   };
 }
 
-function scoreSeniority(level: Seniority, years: number): ScoreComponent {
-  const base = { key: 'seniority' as const, label: 'Seniority', max: MAX.seniority };
+function scoreSeniority(level: Seniority, years: number): RawComponent {
+  const base = { max: MAX.seniority };
   const table: Record<Seniority, [number, string]> = {
     senior: [10, 'Senior-level role matches your target'],
     mid: [8, 'Mid-level role — slightly below target, still relevant'],
@@ -140,9 +176,9 @@ function scoreSeniority(level: Seniority, years: number): ScoreComponent {
   return { ...base, score, reason };
 }
 
-function scoreLocation(job: ScoringJob, profile: CandidateProfile): { component: ScoreComponent; flags: string[] } {
+function scoreLocation(job: ScoringJob, profile: CandidateProfile): { component: RawComponent; flags: string[] } {
   const ex = job.extraction;
-  const base = { key: 'location' as const, label: 'Location', max: MAX.location };
+  const base = { max: MAX.location };
   const flags: string[] = [];
   const loc = norm(`${job.location ?? ''}`);
   const targets = profile.target_locations.map(norm).filter(Boolean);
@@ -167,9 +203,10 @@ function scoreLocation(job: ScoringJob, profile: CandidateProfile): { component:
   return { component: { ...base, score, reason: `International on-site/hybrid role in ${job.location}${visa}` }, flags };
 }
 
-function scoreSalary(ex: JobExtraction, profile: CandidateProfile): ScoreComponent {
-  const base = { key: 'salary' as const, label: 'Salary', max: MAX.salary };
-  if (!ex.salary) return { ...base, score: 6, reason: 'Salary not disclosed' };
+function scoreSalary(ex: JobExtraction, profile: CandidateProfile): RawComponent {
+  const base = { max: MAX.salary };
+  // Undisclosed salary is neutral — never a reason to skip a strong job.
+  if (!ex.salary) return { ...base, score: 7, reason: 'Salary not disclosed (neutral)' };
   const lpa = salaryInLpa(ex.salary);
   const target = profile.compensation.india_min_lpa;
   if (lpa && target) {
@@ -196,18 +233,65 @@ function sizeToPreference(size?: CompanySize | null): string | null {
   }
 }
 
-function scoreCompany(job: ScoringJob, profile: CandidateProfile): { component: ScoreComponent; avoided: boolean } {
-  const base = { key: 'company' as const, label: 'Company preference', max: MAX.company };
+function scoreCompany(job: ScoringJob, profile: CandidateProfile): { component: RawComponent; avoided: boolean; employer: boolean } {
+  const base = { max: MAX.company };
+  const employer = currentEmployerMatcher(profile.current_company)(job.companyName);
+  if (employer) return { component: { ...base, score: 0, reason: 'Your current employer' }, avoided: true, employer };
   const avoided = profile.avoid_companies.some((c) => norm(c) === norm(job.companyName));
-  if (avoided) return { component: { ...base, score: 0, reason: 'Company is on your avoid list' }, avoided };
+  if (avoided) return { component: { ...base, score: 0, reason: 'Company is on your avoid list' }, avoided, employer };
   const pref = sizeToPreference(job.companySize);
   const prefs = profile.company_preferences;
   if (job.companyType && prefs.includes(job.companyType)) {
-    return { component: { ...base, score: 10, reason: `Company type "${job.companyType}" is a preference` }, avoided };
+    return { component: { ...base, score: 10, reason: `Company type "${job.companyType}" is a preference` }, avoided, employer };
   }
-  if (pref && prefs.includes(pref)) return { component: { ...base, score: 10, reason: `Company size (${pref.replace(/_/g, ' ')}) is a preference` }, avoided };
-  if (pref) return { component: { ...base, score: 4, reason: `Company size (${pref.replace(/_/g, ' ')}) is not in your preferences` }, avoided };
-  return { component: { ...base, score: 7, reason: 'Company size/type unknown' }, avoided };
+  if (pref && prefs.includes(pref)) return { component: { ...base, score: 10, reason: `Company size (${pref.replace(/_/g, ' ')}) is a preference` }, avoided, employer };
+  if (pref) return { component: { ...base, score: 4, reason: `Company size (${pref.replace(/_/g, ' ')}) is not in your preferences` }, avoided, employer };
+  return { component: { ...base, score: 7, reason: 'Company size/type unknown' }, avoided, employer };
+}
+
+/** AI relevance (raw 0-5): GenAI product work the profile actually covers scores highest; ML research lowest. */
+function scoreAi(skills: SkillMatch[]): RawComponent {
+  const ai = skills.filter((s) => getSkill(s.skill)?.category === 'ai');
+  const base = { max: 5 };
+  if (!ai.length) return { ...base, score: 3, reason: 'No AI requirements — neutral' };
+  const mlHeavy = ai.some((s) => s.skill === 'Machine Learning' && s.required && s.level === 'missing');
+  if (mlHeavy) return { ...base, score: 1, reason: 'ML model work required — outside your GenAI-integration experience' };
+  const strong = ai.filter((s) => s.level === 'strong').map((s) => s.skill);
+  if (strong.length) return { ...base, score: 5, reason: `AI work you have done: ${strong.join(', ')}` };
+  return { ...base, score: 2, reason: `AI skills you have not used professionally: ${ai.map((s) => s.skill).join(', ')}` };
+}
+
+/** Freshness (raw 0-5): today 5, ≤3 days 4, ≤7 days 3, ≤14 days 2, ≤30 days 1, older 0, unknown 2. */
+export function freshnessScore(postedAt: Date | null | undefined, now = new Date()): RawComponent {
+  const base = { max: 5 };
+  if (!postedAt) return { ...base, score: 2, reason: 'Posting date unknown' };
+  const days = (now.getTime() - postedAt.getTime()) / 86_400_000;
+  if (days <= 1) return { ...base, score: 5, reason: 'Posted in the last 24 hours' };
+  if (days <= 3) return { ...base, score: 4, reason: 'Posted in the last 72 hours' };
+  if (days <= 7) return { ...base, score: 3, reason: 'Posted in the last 7 days' };
+  if (days <= 14) return { ...base, score: 2, reason: 'Posted in the last 2 weeks' };
+  if (days <= 30) return { ...base, score: 1, reason: 'Posted in the last 30 days' };
+  return { ...base, score: 0, reason: `Posted ${Math.floor(days)} days ago` };
+}
+
+const LABELS: Record<ComponentKey, string> = {
+  technical: 'Technical stack',
+  seniority: 'Experience / seniority',
+  role: 'Role',
+  location: 'Location',
+  compensation: 'Compensation',
+  ai: 'AI relevance',
+  company: 'Company / product',
+  freshness: 'Freshness',
+};
+
+function scaled(key: ComponentKey, raw: RawComponent): ScoreComponent {
+  const max = WEIGHTS[key];
+  return { key, label: LABELS[key], max, score: Math.round((raw.score / raw.max) * max), reason: raw.reason };
+}
+
+export function decisionFor(r: Recommendation): Decision {
+  return r === 'STRONG_APPLY' || r === 'APPLY' ? 'APPLY' : r === 'CONSIDER' ? 'CONSIDER' : 'SKIP';
 }
 
 export function recommendationFor(total: number): Recommendation {
@@ -222,36 +306,50 @@ const ORDER: Recommendation[] = ['SKIP', 'LOW_PRIORITY', 'CONSIDER', 'APPLY', 'S
 const cap = (r: Recommendation, max: Recommendation): Recommendation => (ORDER.indexOf(r) > ORDER.indexOf(max) ? max : r);
 
 /** Deterministic candidate↔job scoring (0-100). No LLM involved. */
-export function scoreJob(job: ScoringJob, profile: CandidateProfile): MatchResult {
+export function scoreJob(job: ScoringJob, profile: CandidateProfile, now = new Date()): MatchResult {
   const ex = job.extraction;
   const skills: SkillMatch[] = [
     ...ex.requiredSkills.map((s) => ({ skill: s, required: true, ...classifySkill(s, profile) })),
     ...ex.preferredSkills.map((s) => ({ skill: s, required: false, ...classifySkill(s, profile) })),
   ];
-  const role = scoreRole(job.title, ex.roleFamily, profile);
+  const roleRaw = scoreRole(job.title, ex.roleFamily, profile);
   const experience = scoreExperience(ex, profile.experienceYears);
-  const skillComp = scoreSkills(skills);
-  const seniority = scoreSeniority(ex.seniority, profile.experienceYears);
-  const { component: location, flags } = scoreLocation(job, profile);
-  const salary = scoreSalary(ex, profile);
-  const { component: company, avoided } = scoreCompany(job, profile);
-  const components = [role, experience, skillComp, seniority, location, salary, company];
+  const seniorityRaw = scoreSeniority(ex.seniority, profile.experienceYears);
+  const { component: locationRaw, flags } = scoreLocation(job, profile);
+  const { component: companyRaw, avoided, employer } = scoreCompany(job, profile);
+
+  const technical = scaled('technical', scoreSkills(skills));
+  const seniority = scaled('seniority', {
+    score: experience.score + seniorityRaw.score,
+    max: experience.max + seniorityRaw.max,
+    reason: `${experience.reason}; ${seniorityRaw.reason}`,
+  });
+  const role = scaled('role', roleRaw);
+  const location = scaled('location', locationRaw);
+  const compensation = scaled('compensation', scoreSalary(ex, profile));
+  const ai = scaled('ai', scoreAi(skills));
+  const company = scaled('company', companyRaw);
+  const freshness = scaled('freshness', freshnessScore(job.postedAt, now));
+  const components = [technical, seniority, role, location, compensation, ai, company, freshness];
   const total = Math.max(0, Math.min(100, components.reduce((a, c) => a + c.score, 0)));
 
   let recommendation = recommendationFor(total);
   const reasons: string[] = [];
-  if (avoided) {
+  if (employer) {
+    recommendation = 'SKIP';
+    reasons.push('This is your current employer — never contacted.');
+  } else if (avoided) {
     recommendation = 'SKIP';
     reasons.push('Company is on your avoid list.');
   }
-  if (role.score <= 3) {
+  if (roleRaw.score <= 3) {
     recommendation = cap(recommendation, 'SKIP');
-    reasons.push(`${role.reason} — outside your target roles.`);
+    reasons.push(`${roleRaw.reason} — outside your target roles.`);
   }
   if (ex.seniority === 'intern' || ex.seniority === 'manager') recommendation = cap(recommendation, 'LOW_PRIORITY');
-  if (location.score <= 2) {
+  if (locationRaw.score <= 2) {
     recommendation = cap(recommendation, 'LOW_PRIORITY');
-    reasons.push(`Location is a likely blocker: ${location.reason}.`);
+    reasons.push(`Location is a likely blocker: ${locationRaw.reason}.`);
   }
   const coreMissing = skills.filter((s) => s.required && s.level === 'missing' && ['language', 'runtime'].includes(getSkill(s.skill)?.category ?? ''));
   const coreStrong = skills.filter((s) => s.level === 'strong' && ['language', 'runtime'].includes(getSkill(s.skill)?.category ?? ''));
@@ -268,5 +366,23 @@ export function scoreJob(job: ScoringJob, profile: CandidateProfile): MatchResul
   if (strong.length) reasons.push(`Strong overlap: ${strong.slice(0, 6).join(', ')}.`);
   if (missing.length) reasons.push(`Gaps to address honestly: ${missing.slice(0, 5).join(', ')}.`);
 
-  return { version: SCORE_VERSION, total, recommendation, components, skills, strong, partial, missing, reasons, flags };
+  const decision = decisionFor(recommendation);
+  const gaps = [...missing, ...flags.map((f) => `Location restriction: ${f}`)];
+  if (ex.minYears != null && ex.minYears > profile.experienceYears) gaps.push(`Asks for ${ex.minYears}+ years (you have ~${profile.experienceYears})`);
+  const by = Object.fromEntries(components.map((c) => [c.key, c.score])) as Record<ComponentKey, number>;
+  const breakdown: ScoreBreakdown = {
+    score: total,
+    technical_score: by.technical,
+    seniority_score: by.seniority,
+    role_score: by.role,
+    location_score: by.location,
+    compensation_score: by.compensation,
+    ai_score: by.ai,
+    company_score: by.company,
+    freshness_score: by.freshness,
+    strong_matches: strong,
+    gaps,
+    recommendation: decision,
+  };
+  return { version: SCORE_VERSION, total, recommendation, components, skills, strong, partial, missing, reasons, flags, decision, breakdown };
 }

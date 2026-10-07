@@ -5,6 +5,7 @@ import { AuditService } from '../../common/audit.service';
 import { AuthUser, CurrentUser, DomainError, RateLimit, ZodPipe } from '../../common/http';
 import { PrismaService } from '../../common/prisma.service';
 import { QueueService } from '../queues/queues';
+import { SOURCE_CATALOG } from '../../providers/jobs/source-catalog';
 import { JobsService } from './jobs.service';
 
 const manualSchema = z.object({
@@ -31,13 +32,14 @@ const listSchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).optional(),
 });
 
-const sourceSchema = z.object({
-  provider: z.enum(['GREENHOUSE', 'LEVER', 'ASHBY']),
-  name: z.string().trim().min(1).max(100),
-  boardToken: z.string().trim().regex(/^[A-Za-z0-9_.-]{1,100}$/, 'Board token: letters, numbers, dot, dash, underscore'),
-  companyName: z.string().trim().max(200).optional(),
-  enabled: z.boolean().default(true),
-});
+const boardToken = z.string().trim().regex(/^[A-Za-z0-9_.-]{1,100}$/, 'Board token: letters, numbers, dot, dash, underscore');
+const common = { name: z.string().trim().min(1).max(100), companyName: z.string().trim().max(200).optional(), domain: z.string().trim().max(253).optional(), enabled: z.boolean().default(true) };
+const sourceSchema = z.discriminatedUnion('provider', [
+  z.object({ provider: z.enum(['GREENHOUSE', 'LEVER', 'ASHBY', 'WORKABLE', 'RECRUITEE']), boardToken, ...common }),
+  z.object({ provider: z.literal('CAREER_PAGE'), url: z.string().trim().url().startsWith('https://').max(2000), ...common }),
+  z.object({ provider: z.literal('YC_JOBS'), paths: z.array(z.string().regex(/^\/jobs\/[a-z0-9/_-]+$/)).max(10).optional(), ...common }),
+  z.object({ provider: z.literal('WEB_SEARCH'), maxQueries: z.number().int().min(1).max(40).optional(), withinDays: z.number().int().min(1).max(7).optional(), ...common }),
+]);
 
 @Controller()
 export class JobsController {
@@ -97,6 +99,12 @@ export class JobsController {
 
   // ─── Job sources (discovery) ───────────────────────────────────────────────
 
+  /** Every known source — including the ones that are deliberately manual-only, with the reason. */
+  @Get('job-sources/catalog')
+  catalog() {
+    return { sources: SOURCE_CATALOG, webSearchConfigured: this.jobs.webSearchConfigured };
+  }
+
   @Get('job-sources')
   sources(@CurrentUser() user: AuthUser) {
     return this.prisma.jobSource.findMany({ where: { userId: user.id }, orderBy: { createdAt: 'asc' }, include: { _count: { select: { jobs: true } } } });
@@ -110,7 +118,7 @@ export class JobsController {
         provider: body.provider as JobProviderKind,
         name: body.name,
         enabled: body.enabled,
-        config: { boardToken: body.boardToken, ...(body.companyName ? { companyName: body.companyName } : {}) } as Prisma.InputJsonValue,
+        config: sourceConfig(body) as Prisma.InputJsonValue,
       },
     });
     await this.audit.log('job_source.created', { userId: user.id, entityType: 'job_source', entityId: source.id });
@@ -145,4 +153,9 @@ export class JobsController {
     for (const s of sources) await this.queues.discover({ userId: user.id, sourceId: s.id });
     return { queued: sources.length };
   }
+}
+
+function sourceConfig(body: z.infer<typeof sourceSchema>): Record<string, unknown> {
+  const { provider: _p, name: _n, enabled: _e, ...rest } = body;
+  return Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined && v !== ''));
 }

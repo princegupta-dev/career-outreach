@@ -78,7 +78,8 @@ export class FollowupRunnerService {
           const draft = await this.outreach.generateFollowupDraft(f.id);
           stats.draftsPrepared++;
           const s = await this.settings.get(f.userId);
-          if (s.followups.autoSend) {
+          // Follow-ups go out unreviewed only when BOTH automatic sending and follow-up auto-send are on.
+          if (s.followups.autoSend && s.outreach.sendMode === 'AUTO_SEND') {
             await this.outreach.approve(f.userId, draft.id);
             stats.queued++;
           }

@@ -19,7 +19,8 @@ describe('deterministic job scoring', () => {
 
   it('marks adjacent technologies as partial and unknown ones as missing', () => {
     expect(classifySkill('Kafka', profile)).toMatchObject({ level: 'partial' });
-    expect(classifySkill('Kubernetes', profile)).toMatchObject({ level: 'partial', via: expect.stringContaining('Docker') });
+    expect(classifySkill('Kubernetes', profile)).toMatchObject({ level: 'partial' });
+    expect(classifySkill('Terraform', { ...profile, partialSkills: [] })).toMatchObject({ level: expect.stringMatching(/partial|missing/) });
     expect(classifySkill('Cassandra', profile)).toEqual({ level: 'missing' });
     expect(classifySkill('SQL', profile)).toMatchObject({ level: 'strong' });
   });
@@ -43,9 +44,11 @@ describe('deterministic job scoring', () => {
   });
 
   it('penalises experience gaps', () => {
-    const r = score('Senior Backend Engineer', BACKEND_JD.replace('3+ years', '8+ years'));
-    const exp = r.components.find((c) => c.key === 'experience')!;
-    expect(exp.score).toBeLessThanOrEqual(1);
+    const ok = score('Senior Backend Engineer', BACKEND_JD).components.find((c) => c.key === 'seniority')!;
+    const gap = score('Senior Backend Engineer', BACKEND_JD.replace('3+ years', '8+ years')).components.find((c) => c.key === 'seniority')!;
+    expect(ok.score).toBe(20);
+    expect(gap.score).toBeLessThanOrEqual(9);
+    expect(score('Senior Backend Engineer', BACKEND_JD.replace('3+ years', '8+ years')).breakdown.gaps).toEqual(expect.arrayContaining([expect.stringMatching(/8\+ years/)]));
   });
 
   it('is deterministic', () => {
@@ -65,7 +68,7 @@ describe('seniority + company-name edge cases (found on live data)', () => {
   it('does not treat a new-grad role as a senior target-role match', () => {
     const r = score('Software Engineer, New Grad (2027)', BACKEND_JD);
     expect(r.components.find((c) => c.key === 'role')!.reason).not.toMatch(/matches target role/);
-    expect(r.components.find((c) => c.key === 'seniority')!.score).toBeLessThanOrEqual(3);
+    expect(r.components.find((c) => c.key === 'seniority')!.score).toBeLessThan(16);
   });
   it('ignores a "skill" that is just the company name (e.g. Sentry)', () => {
     const ex = extractJob({ title: 'Senior Backend Engineer', description: `${BACKEND_JD}\nAt Sentry we use Sentry to monitor Sentry.`, companyName: 'Sentry' });

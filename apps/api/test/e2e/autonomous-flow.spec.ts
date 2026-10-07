@@ -42,7 +42,7 @@ describe('Autonomous discovery → cold outreach (e2e)', () => {
     agent = request.agent(app.getHttpServer());
     csrf = (await get('/auth/csrf')).body.csrfToken;
     await post('/auth/register', { email: 'prince@example.com', password: 'correct-horse-battery', name: 'Prince Gupta' }).expect(201);
-    await agent.patch('/api/settings').set('x-csrf-token', csrf).send({ outreach: { minMinutesBetweenSends: 0 }, automation: { minScoreToPrepare: 60 } }).expect(200);
+    await agent.patch('/api/settings').set('x-csrf-token', csrf).send({ outreach: { minMinutesBetweenSends: 0, maxJitterSeconds: 0 }, automation: { minScoreToPrepare: 60 } }).expect(200);
     await app.get(QueueService).all()['discovery'].obliterate({ force: true }); // run discovery inline instead of via the worker
   });
   afterEach(() => web.restore());

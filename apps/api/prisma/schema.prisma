@@ -35,6 +35,11 @@ enum JobProviderKind {
   REMOTEOK
   HN_HIRING
   WWR
+  WORKABLE
+  RECRUITEE
+  YC_JOBS
+  CAREER_PAGE
+  WEB_SEARCH
 }
 
 enum Recommendation {
@@ -60,6 +65,10 @@ enum ApplicationStatus {
   REJECTED
   OFFER
   CLOSED
+  /// Application submitted on the company's portal (recorded by the user).
+  APPLIED
+  /// Deliberately not pursued.
+  SKIPPED
 }
 
 enum ContactRole {
@@ -73,6 +82,26 @@ enum ContactRole {
   CTO
   ENGINEER
   OTHER
+}
+
+/// Can this address be emailed? Only PUBLICLY_LISTED / VERIFIED are ever sent to.
+enum EmailVerificationStatus {
+  UNKNOWN
+  PUBLICLY_LISTED
+  VERIFIED
+  INVALID
+  BOUNCED
+}
+
+/// Where a contact's email was found (all public, purpose-given sources).
+enum ContactSourceType {
+  JOB_POSTING
+  CAREERS_PAGE
+  CONTACT_PAGE
+  COMPANY_WEBSITE
+  YC_PAGE
+  DATA_PROVIDER
+  MANUAL
 }
 
 enum ContactConfidence {
@@ -134,6 +163,8 @@ enum EmailEventType {
   BOUNCE
   FOLLOWUP_CANCELLED
   UNSUBSCRIBE
+  /// Send mode DRY_RUN: the email was rendered and checked but never handed to a provider.
+  DRY_RUN
 }
 
 enum AiKind {
@@ -320,6 +351,16 @@ model Job {
   provider        JobProviderKind
   externalId      String?         @map("external_id")
   url             String?
+  /// Where to apply (may differ from the listing, e.g. YC → company ATS).
+  applicationUrl  String?         @map("application_url")
+  /// The page the posting was discovered on.
+  sourceUrl       String?         @map("source_url")
+  /// Canonical form of url/applicationUrl — cross-provider URL dedupe.
+  canonicalUrl    String?         @map("canonical_url")
+  /// sha256(normalized company | role | location) — dedupe when no external id exists.
+  dedupeKey       String?         @map("dedupe_key")
+  /// Experience requirement as stated (e.g. "4-6 years").
+  experienceRequired String?      @map("experience_required")
   title           String
   location        String?
   remote          Boolean?
@@ -358,6 +399,9 @@ model Job {
   @@unique([userId, sourceHash])
   @@index([userId, score])
   @@index([userId, recommendation])
+  @@index([userId, dedupeKey])
+  @@index([userId, canonicalUrl])
+  @@index([userId, postedAt])
   @@index([companyId])
   @@map("jobs")
 }
@@ -374,6 +418,9 @@ model Contact {
   source          String
   sourceUrl       String?           @map("source_url")
   confidence      ContactConfidence @default(UNKNOWN)
+  verificationStatus EmailVerificationStatus @default(UNKNOWN) @map("verification_status")
+  sourceType      ContactSourceType @default(MANUAL) @map("source_type")
+  discoveredAt    DateTime          @default(now()) @map("discovered_at")
   linkedinUrl     String?           @map("linkedin_url")
   notes           String?
   createdAt       DateTime          @default(now()) @map("created_at")
@@ -402,6 +449,8 @@ model Application {
   replySentiment  String?           @map("reply_sentiment")
   /// When the automation prepared contact + resume + draft for this job.
   autoPreparedAt  DateTime?         @map("auto_prepared_at")
+  /// When the user submitted the application on the company's portal.
+  appliedAt       DateTime?         @map("applied_at")
   notes           String?
   createdAt       DateTime          @default(now()) @map("created_at")
   updatedAt       DateTime          @updatedAt @map("updated_at")

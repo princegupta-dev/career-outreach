@@ -288,6 +288,8 @@ export function parseHnComment(c: HnComment): ProviderJob | null {
     source: 'hn_hiring',
     sourceUrl: `https://news.ycombinator.com/item?id=${c.objectID}`,
     confidence: 'VERIFIED',
+    sourceType: 'JOB_POSTING',
+    verificationStatus: 'PUBLICLY_LISTED',
   }));
   let domain: string | null = null;
   try {

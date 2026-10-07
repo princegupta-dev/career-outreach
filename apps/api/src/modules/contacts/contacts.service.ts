@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import type { ContactConfidence, ContactRole } from '@prisma/client';
+import type { ContactConfidence, ContactRole, EmailVerificationStatus } from '@prisma/client';
 import { AuditService } from '../../common/audit.service';
 import { DomainError } from '../../common/http';
 import { PrismaService } from '../../common/prisma.service';
@@ -7,7 +7,7 @@ import { ENV, Env } from '../../config/env';
 import { categorizeRole, rankContacts } from '../../domain/contacts/rank';
 import { normalizeEmail } from '../../domain/dedupe';
 import { isValidEmail } from '../../domain/outreach/guardrails';
-import { CompanyWebsiteContactProvider, ContactCandidate, ContactProvider, HunterContactProvider, JobPostingContactProvider } from '../../providers/contacts/contact-provider';
+import { CompanyWebsiteContactProvider, ContactCandidate, ContactDiscoveryStatus, ContactProvider, HunterContactProvider, JobPostingContactProvider } from '../../providers/contacts/contact-provider';
 import { httpFetch, isAllowedByRobots } from '../../providers/http';
 import { RedisService } from '../../common/redis.service';
 import { ApplicationsService } from '../applications/applications.service';
@@ -21,6 +21,20 @@ export interface ContactInput {
   notes?: string | null;
   confidence?: ContactConfidence;
   sourceUrl?: string | null;
+  verificationStatus?: EmailVerificationStatus;
+}
+
+/** BOUNCED / INVALID are facts learned by sending — never overwritten by a later discovery. */
+const VERIFICATION_RANK: Record<EmailVerificationStatus, number> = { UNKNOWN: 0, PUBLICLY_LISTED: 1, VERIFIED: 2, INVALID: 9, BOUNCED: 9 };
+
+function mergeVerification(existing: EmailVerificationStatus, incoming: EmailVerificationStatus): EmailVerificationStatus {
+  return VERIFICATION_RANK[existing] >= VERIFICATION_RANK[incoming] ? existing : incoming;
+}
+
+function assertSourceForSendable(status: EmailVerificationStatus | undefined, sourceUrl: string | null | undefined): void {
+  if ((status === 'PUBLICLY_LISTED' || status === 'VERIFIED') && !sourceUrl) {
+    throw new DomainError('Record where this address is published (sourceUrl) before marking it publicly listed or verified.', 400);
+  }
 }
 
 @Injectable()
@@ -90,6 +104,9 @@ export class ContactsService {
             roleCategory: existing.roleCategory === 'OTHER' ? c.roleCategory : existing.roleCategory,
             linkedinUrl: existing.linkedinUrl ?? c.linkedinUrl ?? null,
             confidence: rankConfidence(existing.confidence) >= rankConfidence(c.confidence) ? existing.confidence : c.confidence,
+            verificationStatus: mergeVerification(existing.verificationStatus, c.verificationStatus),
+            ...(existing.sourceType === 'MANUAL' && c.sourceType !== 'MANUAL' ? { sourceType: c.sourceType } : {}),
+            sourceUrl: existing.sourceUrl ?? c.sourceUrl ?? null,
           },
         });
       }
@@ -106,6 +123,8 @@ export class ContactsService {
         source: c.source,
         sourceUrl: c.sourceUrl ?? null,
         confidence: c.confidence,
+        sourceType: c.sourceType,
+        verificationStatus: emailNormalized ? c.verificationStatus : 'UNKNOWN',
         linkedinUrl: c.linkedinUrl ?? null,
       },
     });
@@ -114,6 +133,7 @@ export class ContactsService {
   async create(userId: string, companyId: string, input: ContactInput) {
     const company = await this.prisma.company.findFirst({ where: { id: companyId, userId } });
     if (!company) throw new NotFoundException('Company not found');
+    assertSourceForSendable(input.verificationStatus, input.sourceUrl);
     const contact = await this.upsert(userId, companyId, {
       name: input.name,
       role: input.role,
@@ -122,8 +142,10 @@ export class ContactsService {
       linkedinUrl: input.linkedinUrl,
       source: 'manual',
       sourceUrl: input.sourceUrl ?? null,
-      // Manually entered contacts are UNVERIFIED unless the user says otherwise.
+      // Manually entered contacts are UNVERIFIED / UNKNOWN unless the user records where the address is published.
       confidence: input.confidence ?? 'UNVERIFIED',
+      sourceType: 'MANUAL',
+      verificationStatus: input.verificationStatus ?? 'UNKNOWN',
     });
     if (input.notes) await this.prisma.contact.update({ where: { id: contact.id }, data: { notes: input.notes } });
     await this.audit.log('contact.created', { userId, entityType: 'contact', entityId: contact.id, metadata: { source: 'manual' } });
@@ -135,6 +157,9 @@ export class ContactsService {
     if (!contact) throw new NotFoundException('Contact not found');
     const emailNormalized = input.email !== undefined ? (input.email ? normalizeEmail(input.email) : null) : undefined;
     if (emailNormalized && !isValidEmail(emailNormalized)) throw new DomainError('Invalid email address', 400);
+    assertSourceForSendable(input.verificationStatus, input.sourceUrl !== undefined ? input.sourceUrl : contact.sourceUrl);
+    // A changed address is a new, unverified address unless the caller says where it is published.
+    const emailChanged = emailNormalized !== undefined && emailNormalized !== contact.emailNormalized;
     return this.prisma.contact.update({
       where: { id },
       data: {
@@ -145,6 +170,8 @@ export class ContactsService {
         ...(input.linkedinUrl !== undefined ? { linkedinUrl: input.linkedinUrl } : {}),
         ...(input.notes !== undefined ? { notes: input.notes } : {}),
         ...(input.confidence ? { confidence: input.confidence } : {}),
+        ...(input.sourceUrl !== undefined ? { sourceUrl: input.sourceUrl } : {}),
+        ...(input.verificationStatus ? { verificationStatus: input.verificationStatus } : emailChanged ? { verificationStatus: 'UNKNOWN' as const } : {}),
       },
     });
   }
@@ -160,7 +187,7 @@ export class ContactsService {
     const job = await this.prisma.job.findFirst({ where: { id: jobId, userId }, include: { company: true } });
     if (!job) throw new NotFoundException('Job not found');
     const contacts = await this.prisma.contact.findMany({ where: { userId, companyId: job.companyId, deletedAt: null } });
-    return rankContacts(contacts, job.company.size).map((r) => ({ ...r.contact, rankScore: r.score, rankReason: r.reason }));
+    return rankContacts(contacts, job.company.size).map((r) => ({ ...r.contact, rankScore: r.score, rankReason: r.reason, priority: r.tier, sendable: r.sendable }));
   }
 
   /** Run legitimate contact providers, store results, pick the best contact. */
@@ -179,12 +206,15 @@ export class ContactsService {
       }
     }
     const ranked = await this.rankedForJob(userId, jobId);
-    const best = ranked.find((c) => c.email);
+    // Only a publicly listed / verified address can be selected — never a guess.
+    const best = ranked.find((c) => c.sendable);
+    const status: ContactDiscoveryStatus = best ? 'FOUND' : 'EMAIL_NOT_FOUND';
     if (job.application && !job.application.contactId && best) {
       await this.prisma.application.update({ where: { id: job.application.id }, data: { contactId: best.id } });
       await this.applications.autoAdvance(job.application.id, 'CONTACT_FOUND');
     }
     return {
+      status,
       contacts: ranked,
       newOrUpdated: found.length,
       selectedContactId: best?.id ?? null,

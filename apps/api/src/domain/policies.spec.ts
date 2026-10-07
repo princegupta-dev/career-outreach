@@ -1,5 +1,6 @@
 import { RateLimiter, RateLimitStore } from '../common/rate-limiter';
 import { allowedTransitions, assertTransition, canSystemAdvance, canTransition, InvalidTransitionError, shouldAutoAdvance } from './applications/state-machine';
+import type { ContactRole, ContactSourceType } from '@prisma/client';
 import { categorizeRole, rankContacts } from './contacts/rank';
 import { evaluateGuardrails, GuardrailContext, isSuppressed, startOfLocalDay } from './outreach/guardrails';
 import { resolveSettings } from './settings';
@@ -155,15 +156,27 @@ describe('contact ranking', () => {
     expect(categorizeRole('CTO')).toBe('CTO');
     expect(categorizeRole('Talent Acquisition Partner')).toBe('RECRUITER');
   });
-  it('prefers founders/CTO at early startups and hiring managers/recruiters at enterprises', () => {
-    const contacts = [
-      { id: 'cto', roleCategory: 'CTO' as const, confidence: 'VERIFIED' as const, email: 'a@x.com' },
-      { id: 'rec', roleCategory: 'TECHNICAL_RECRUITER' as const, confidence: 'VERIFIED' as const, email: 'b@x.com' },
-      { id: 'hm', roleCategory: 'HIRING_MANAGER' as const, confidence: 'VERIFIED' as const, email: 'c@x.com' },
-    ];
-    expect(rankContacts(contacts, 'EARLY_STARTUP')[0].contact.id).toBe('cto');
-    expect(rankContacts(contacts, 'ENTERPRISE')[0].contact.id).toBe('hm');
-    expect(rankContacts(contacts, 'ENTERPRISE')[1].contact.id).toBe('rec');
+  it('follows the fixed contact priority: job recruiter → listed hiring manager → posting inbox → careers → hiring → general', () => {
+    const c = (id: string, roleCategory: ContactRole, sourceType: ContactSourceType, email: string) => ({ id, roleCategory, sourceType, email, confidence: 'VERIFIED' as const, verificationStatus: 'PUBLICLY_LISTED' as const });
+    const ranked = rankContacts([
+      c('general', 'OTHER', 'CONTACT_PAGE', 'hello@acme.com'),
+      c('careers', 'RECRUITER', 'CAREERS_PAGE', 'careers@acme.com'),
+      c('posting-inbox', 'RECRUITER', 'JOB_POSTING', 'jobs@acme.com'),
+      c('hm', 'ENGINEERING_MANAGER', 'JOB_POSTING', 'sam@acme.com'),
+      c('recruiter', 'TECHNICAL_RECRUITER', 'JOB_POSTING', 'priya@acme.com'),
+      c('site-hiring', 'RECRUITER', 'COMPANY_WEBSITE', 'hiring@acme.com'),
+    ]);
+    expect(ranked.map((r) => r.contact.id)).toEqual(['recruiter', 'hm', 'posting-inbox', 'careers', 'site-hiring', 'general']);
+    expect(ranked.map((r) => r.tier)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+  it('never ranks an unverified / bounced address above a publicly listed one', () => {
+    const ranked = rankContacts([
+      { id: 'bounced', roleCategory: 'TECHNICAL_RECRUITER' as const, sourceType: 'JOB_POSTING' as const, email: 'a@x.com', confidence: 'VERIFIED' as const, verificationStatus: 'BOUNCED' as const },
+      { id: 'unknown', roleCategory: 'HIRING_MANAGER' as const, sourceType: 'MANUAL' as const, email: 'b@x.com', confidence: 'UNVERIFIED' as const, verificationStatus: 'UNKNOWN' as const },
+      { id: 'listed', roleCategory: 'OTHER' as const, sourceType: 'CONTACT_PAGE' as const, email: 'info@x.com', confidence: 'VERIFIED' as const, verificationStatus: 'PUBLICLY_LISTED' as const },
+    ]);
+    expect(ranked[0].contact.id).toBe('listed');
+    expect(ranked.filter((r) => r.sendable).map((r) => r.contact.id)).toEqual(['listed']);
   });
   it('deprioritises contacts without email or with low confidence', () => {
     const ranked = rankContacts(

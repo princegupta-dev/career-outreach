@@ -30,6 +30,7 @@ const FACTS: ExperienceFact[] = [
   { triggers: ['Observability', 'Production Debugging', 'Datadog', 'Prometheus', 'Grafana', 'OpenTelemetry', 'Sentry'], requires: ['Production Debugging'], phrase: 'production debugging and observability' },
   { triggers: ['Distributed Systems', 'Microservices', 'System Design', 'Backend Architecture'], requires: ['Distributed Systems'], phrase: 'distributed backend workflows' },
   { triggers: ['Loyalty Platforms', 'E-commerce', 'SaaS'], requires: [], domain: 'loyalty', phrase: 'loyalty and e-commerce platforms' },
+  { triggers: ['LLMs', 'RAG', 'LangChain', 'Vector Databases'], requires: ['LLMs'], phrase: 'LLM-enabled workflows in a loyalty platform' },
 ];
 
 function pick<T>(items: T[], seed: string, salt: string): T {

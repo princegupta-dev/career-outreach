@@ -31,10 +31,14 @@ const schema = z.object({
   GOOGLE_REDIRECT_URI: z.string().optional(),
 
   HUNTER_API_KEY: z.string().optional(),
+  /** Google Programmable Search JSON API (optional) — enables the web-search job source. */
+  GOOGLE_CSE_API_KEY: z.string().optional(),
+  GOOGLE_CSE_ID: z.string().optional(),
 
   EMAIL_SYNC_CRON: z.string().default('*/10 * * * *'),
   FOLLOWUP_CRON: z.string().default('*/15 * * * *'),
-  DISCOVERY_CRON: z.string().default('30 1 * * *'),
+  /** 07:00, 13:00 and 19:00 IST (server time UTC) — fresh postings are worth more. */
+  DISCOVERY_CRON: z.string().default('30 1,7,13 * * *'),
   ANALYTICS_CRON: z.string().default('0 * * * *'),
 });
 

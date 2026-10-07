@@ -1,6 +1,6 @@
-import type { OutreachKind } from '@prisma/client';
+import type { EmailVerificationStatus, OutreachKind } from '@prisma/client';
 import type { UserSettings } from '../settings';
-import { emailDomain, normalizeEmail } from '../dedupe';
+import { emailDomain, normalizeCompanyName, normalizeEmail } from '../dedupe';
 
 /** Snapshot of facts the guardrails need — gathered from the DB by the caller. */
 export interface GuardrailContext {
@@ -25,6 +25,41 @@ export interface GuardrailContext {
   approved: boolean;
   /** Allows skipping the company cooldown (explicit user override). */
   overrideCompanyCooldown?: boolean;
+  /** Emails sent in the last 60 minutes (all kinds). */
+  sentLastHour?: number;
+  /** Emails sent today to the recipient's domain (all kinds). */
+  sentToDomainToday?: number;
+  /** Verification state of the recipient address. Only PUBLICLY_LISTED / VERIFIED may be emailed. */
+  verificationStatus?: EmailVerificationStatus;
+  /** Recipient company / domain belongs to the candidate's current employer. */
+  isCurrentEmployer?: boolean;
+}
+
+/** Addresses that may be emailed. Everything else (UNKNOWN, INVALID, BOUNCED) is blocked. */
+export const SENDABLE_VERIFICATION: EmailVerificationStatus[] = ['PUBLICLY_LISTED', 'VERIFIED'];
+
+export function isSendable(status: EmailVerificationStatus | null | undefined): boolean {
+  return !!status && SENDABLE_VERIFICATION.includes(status);
+}
+
+/**
+ * Matches the candidate's current employer by company name or email domain
+ * ("almonds.ai" ⇢ "Almonds.ai", "Almonds AI", "@almonds.ai", "@mail.almonds.ai").
+ */
+export function currentEmployerMatcher(currentCompany: string | null | undefined): (companyName?: string | null, emailOrDomain?: string | null) => boolean {
+  const raw = (currentCompany ?? '').trim().toLowerCase();
+  if (!raw) return () => false;
+  const strip = (n: string) => normalizeCompanyName(n).replace(/\s+(ai|io|com|co|in|app|tech|dev)$/, '').trim();
+  const name = strip(raw);
+  const domain = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(raw) ? raw.replace(/^www\./, '') : null;
+  const label = (domain ?? '').split('.')[0];
+  return (companyName, emailOrDomain) => {
+    if (companyName && name && strip(companyName) === name) return true;
+    const d = (emailOrDomain ?? '').toLowerCase().split('@').pop() ?? '';
+    if (!d) return false;
+    if (domain && (d === domain || d.endsWith(`.${domain}`))) return true;
+    return !!label && label.length > 3 && d.split('.').slice(-2, -1)[0] === label;
+  };
 }
 
 export interface GuardrailResult {
@@ -61,6 +96,10 @@ export function evaluateGuardrails(ctx: GuardrailContext, settings: UserSettings
 
   if (!isValidEmail(ctx.toEmail)) blockers.push(`"${ctx.toEmail}" is not a valid email address.`);
   if (isSuppressed(ctx.toEmail, ctx.suppressions)) blockers.push('Recipient is on your suppression list.');
+  if (ctx.isCurrentEmployer) blockers.push('Recipient is at your current employer — never contacted.');
+  if (ctx.verificationStatus !== undefined && !isSendable(ctx.verificationStatus)) {
+    blockers.push(`Recipient address is ${ctx.verificationStatus.replace(/_/g, ' ').toLowerCase()} — only publicly listed or verified addresses are emailed.`);
+  }
   if (ctx.kind === 'INITIAL' && !ctx.approved) blockers.push('Initial emails require your explicit approval.');
 
   if (ctx.sentToday >= o.dailyLimit) {
@@ -69,6 +108,14 @@ export function evaluateGuardrails(ctx: GuardrailContext, settings: UserSettings
   }
   if (ctx.kind === 'INITIAL' && ctx.initialSentToday >= o.dailyInitialLimit) {
     blockers.push(`Daily limit for new outreach reached (${o.dailyInitialLimit}).`);
+    retryAt = new Date(ctx.now.getTime() + DAY);
+  }
+  if ((ctx.sentLastHour ?? 0) >= o.hourlyLimit) {
+    blockers.push(`Hourly limit reached (${o.hourlyLimit}/hour).`);
+    retryAt = new Date(ctx.now.getTime() + 60 * 60_000);
+  }
+  if ((ctx.sentToDomainToday ?? 0) >= o.perDomainDailyLimit) {
+    blockers.push(`Daily per-domain limit reached for @${emailDomain(ctx.toEmail)} (${o.perDomainDailyLimit}/day).`);
     retryAt = new Date(ctx.now.getTime() + DAY);
   }
   if (ctx.lastSentAt && o.minMinutesBetweenSends > 0) {
@@ -97,7 +144,7 @@ export function evaluateGuardrails(ctx: GuardrailContext, settings: UserSettings
   }
 
   // Only spacing/limit blockers are retryable.
-  const onlyRetryable = blockers.every((b) => /^(Daily|Spacing)/.test(b));
+  const onlyRetryable = blockers.every((b) => /^(Daily|Spacing|Hourly)/.test(b));
   return { allowed: blockers.length === 0, blockers, warnings, retryAt: onlyRetryable ? retryAt : undefined };
 }
 
@@ -109,4 +156,9 @@ export function startOfLocalDay(now: Date, timeZone: string): Date {
   const offset = localAsUtc - Math.floor(now.getTime() / 1000) * 1000;
   const localMidnightAsUtc = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day));
   return new Date(localMidnightAsUtc - offset);
+}
+
+/** Random extra delay so queued emails don't leave in bursts (0..maxSeconds). */
+export function sendJitterMs(maxSeconds: number, random: () => number = Math.random): number {
+  return maxSeconds > 0 ? Math.floor(random() * maxSeconds * 1000) : 0;
 }

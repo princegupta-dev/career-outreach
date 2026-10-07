@@ -11,7 +11,7 @@ import { buildMessageId, quotePrevious } from '../../domain/email/mime';
 import { checkVoice, generateEmailInputSchema, GenerateEmailInput, VoiceRules } from '../../domain/email/voice';
 import { decideFollowup } from '../../domain/followups/schedule';
 import { MatchResult } from '../../domain/matching/scorer';
-import { evaluateGuardrails, GuardrailResult, isSuppressed, startOfLocalDay } from '../../domain/outreach/guardrails';
+import { currentEmployerMatcher, evaluateGuardrails, GuardrailResult, isSendable, isSuppressed, sendJitterMs, startOfLocalDay } from '../../domain/outreach/guardrails';
 import { extractJob, JobExtraction } from '../../domain/skills/extract';
 import { EmailDraft } from '../../providers/ai/ai-provider.interface';
 import { EmailProviderError, OutgoingEmail } from '../../providers/email/email-provider.interface';
@@ -218,9 +218,11 @@ export class OutreachService {
   async evaluate(o: Outreach, now = new Date()): Promise<GuardrailResult> {
     const settings = await this.settings.get(o.userId);
     const dayStart = startOfLocalDay(now, settings.timezone);
-    const app = await this.prisma.application.findUniqueOrThrow({ where: { id: o.applicationId }, include: { job: true } });
+    const app = await this.prisma.application.findUniqueOrThrow({ where: { id: o.applicationId }, include: { job: { include: { company: true } } } });
     const to = normalizeEmail(o.toEmail);
-    const [sentToday, initialSentToday, last, toRecipient, toCompany, suppressions] = await Promise.all([
+    const domain = emailDomain(to);
+    const profile = await this.profiles.get();
+    const [sentToday, initialSentToday, last, toRecipient, toCompany, suppressions, sentLastHour, sentToDomainToday, contact] = await Promise.all([
       this.prisma.outreach.count({ where: { userId: o.userId, status: 'SENT', sentAt: { gte: dayStart } } }),
       this.prisma.outreach.count({ where: { userId: o.userId, status: 'SENT', kind: 'INITIAL', sentAt: { gte: dayStart } } }),
       this.prisma.outreach.findFirst({ where: { userId: o.userId, status: 'SENT' }, orderBy: { sentAt: 'desc' }, select: { sentAt: true } }),
@@ -231,8 +233,14 @@ export class OutreachService {
         orderBy: { sentAt: 'desc' },
       }),
       this.prisma.suppression.findMany({ where: { userId: o.userId }, select: { value: true } }),
+      this.prisma.outreach.count({ where: { userId: o.userId, status: 'SENT', sentAt: { gte: new Date(now.getTime() - 3600_000) } } }),
+      this.prisma.outreach.count({ where: { userId: o.userId, status: 'SENT', sentAt: { gte: dayStart }, toEmail: { endsWith: `@${domain}`, mode: 'insensitive' } } }),
+      this.prisma.contact.findUnique({ where: { id: o.contactId }, select: { verificationStatus: true, emailNormalized: true } }),
     ]);
-    return evaluateGuardrails(
+    const isEmployer = currentEmployerMatcher(profile.current_company);
+    // The address on the email must be the contact's recorded (verified) address.
+    const verificationStatus = contact && contact.emailNormalized === to ? contact.verificationStatus : 'UNKNOWN';
+    const result = evaluateGuardrails(
       {
         kind: o.kind,
         toEmail: o.toEmail,
@@ -247,17 +255,27 @@ export class OutreachService {
         suppressions: suppressions.map((s) => s.value),
         approved: o.status === 'APPROVED' || o.status === 'SENDING',
         overrideCompanyCooldown: o.overrideCooldown,
+        sentLastHour,
+        sentToDomainToday,
+        verificationStatus,
+        isCurrentEmployer: isEmployer(app.job.company.name, to) || (!!app.job.company.domain && isEmployer(null, app.job.company.domain)),
       },
       settings,
     );
+    if (settings.outreach.sendMode === 'DRAFT_ONLY') {
+      result.blockers.push('Send mode is DRAFT_ONLY — drafts are prepared in your mailbox but nothing is sent. Change the send mode to send.');
+      result.allowed = false;
+      result.retryAt = undefined;
+    }
+    return result;
   }
 
   /** Explicit user approval. Queues the send; limits/spacing are enforced by the worker. */
-  async approve(userId: string, id: string, opts: { overrideCompanyCooldown?: boolean } = {}) {
+  async approve(userId: string, id: string, opts: { overrideCompanyCooldown?: boolean; automatic?: boolean } = {}) {
     const o = await this.getOwned(userId, id);
     if (!['DRAFT', 'FAILED', 'APPROVED'].includes(o.status)) throw new DomainError(`Cannot approve an email that is ${o.status.toLowerCase()}`, 409);
     const preview = await this.evaluate({ ...o, status: 'APPROVED', overrideCooldown: opts.overrideCompanyCooldown ?? o.overrideCooldown });
-    const hard = preview.blockers.filter((b) => !/^(Daily|Spacing)/.test(b));
+    const hard = preview.blockers.filter((b) => !/^(Daily|Spacing|Hourly)/.test(b));
     if (hard.length) throw new DomainError('This email cannot be sent', 422, { blockers: hard, warnings: preview.warnings });
     await this.accounts.sendingAccount(userId); // fails early if Gmail isn't connected
     if (o.kind === 'INITIAL' && o.attachResume) await this.resumes.renderPdf(userId, o.resumeVersionId); // fails early if the PDF can't be built
@@ -265,17 +283,74 @@ export class OutreachService {
       where: { id },
       data: { status: 'APPROVED', approvedAt: new Date(), error: null, overrideCooldown: opts.overrideCompanyCooldown ?? o.overrideCooldown },
     });
-    let delayMs = 0;
+    const settings = await this.settings.get(userId);
+    let delayMs = sendJitterMs(settings.outreach.maxJitterSeconds);
     if (o.kind === 'FOLLOWUP') {
       const f = await this.prisma.followup.findUnique({ where: { outreachId: id } });
       if (f) {
         await this.prisma.followup.update({ where: { id: f.id }, data: { status: 'APPROVED' } });
-        delayMs = Math.max(0, f.scheduledAt.getTime() - Date.now());
+        delayMs += Math.max(0, f.scheduledAt.getTime() - Date.now());
       }
     }
     await this.queues.send({ userId, outreachId: id }, delayMs);
-    await this.audit.log('outreach.approved', { userId, entityType: 'outreach', entityId: id, metadata: { kind: o.kind, overrideCompanyCooldown: !!opts.overrideCompanyCooldown } });
+    await this.audit.log(opts.automatic ? 'outreach.auto_approved' : 'outreach.approved', {
+      userId,
+      entityType: 'outreach',
+      entityId: id,
+      metadata: { kind: o.kind, overrideCompanyCooldown: !!opts.overrideCompanyCooldown, sendMode: settings.outreach.sendMode },
+    });
     return { outreach: updated, guardrails: preview, scheduledInMs: delayMs };
+  }
+
+  /**
+   * AUTO_SEND only: approve an initial email without review when the job is a strong match
+   * and the recipient address is publicly listed / verified. Every guardrail still applies.
+   * Returns false (and leaves the draft for review) in every other case.
+   */
+  async autoApproveIfAllowed(userId: string, outreachId: string): Promise<boolean> {
+    const settings = await this.settings.get(userId);
+    if (settings.outreach.sendMode !== 'AUTO_SEND') return false;
+    const o = await this.getOwned(userId, outreachId);
+    if (o.kind !== 'INITIAL' || o.status !== 'DRAFT') return false;
+    const app = await this.prisma.application.findUniqueOrThrow({ where: { id: o.applicationId }, include: { job: true, contact: true } });
+    if ((app.job.score ?? 0) < settings.outreach.autoSendMinScore) return false;
+    if (!app.contact || !isSendable(app.contact.verificationStatus) || app.contact.emailNormalized !== normalizeEmail(o.toEmail)) return false;
+    const warnings = ((o.warnings as unknown as { items?: string[] })?.items ?? []).length;
+    if (warnings > 0) return false; // anything the writer flagged waits for a human
+    try {
+      await this.approve(userId, outreachId, { automatic: true });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Do-not-contact: suppress an address or a whole domain ("@acme.com" / "acme.com") immediately.
+   * Pending follow-ups and approved-but-unsent emails to it are cancelled right away;
+   * the guardrails also block any future send.
+   */
+  async suppress(userId: string, rawValue: string, reason: string) {
+    const value = rawValue.trim().toLowerCase();
+    const isEmail = value.includes('@') && !value.startsWith('@');
+    const domain = isEmail ? emailDomain(value) : value.replace(/^@/, '');
+    const row = await this.prisma.suppression.upsert({
+      where: { userId_value: { userId, value } },
+      create: { userId, value, kind: isEmail ? 'email' : 'domain', reason },
+      update: { reason },
+    });
+    const match: Prisma.OutreachWhereInput = isEmail ? { toEmail: { equals: value, mode: 'insensitive' } } : { toEmail: { endsWith: `@${domain}`, mode: 'insensitive' } };
+    const pending = await this.prisma.outreach.findMany({ where: { userId, ...match, status: { in: ['DRAFT', 'APPROVED', 'FAILED'] } } });
+    for (const o of pending) {
+      await this.queues.cancelSend(o.id);
+      await this.deleteDraft(o);
+      await this.prisma.outreach.update({ where: { id: o.id }, data: { status: 'CANCELLED', gmailDraftId: null, error: `Suppressed: ${reason}` } });
+    }
+    const roots = await this.prisma.outreach.findMany({ where: { userId, kind: 'INITIAL', ...match }, select: { id: true } });
+    let followupsCancelled = 0;
+    for (const r of roots) followupsCancelled += await this.followups.cancelForRoot(r.id, `Do not contact: ${reason}`);
+    await this.audit.log('suppression.added', { userId, entityType: 'suppression', entityId: row.id, metadata: { kind: row.kind, reason } });
+    return { ...row, email: isEmail ? value : null, domain, emailsCancelled: pending.length, followupsCancelled };
   }
 
   async cancel(userId: string, id: string) {
@@ -347,6 +422,24 @@ export class OutreachService {
       } catch (e) {
         await this.markFailed(o, (e as Error).message);
         return { status: 'failed', reason: (e as Error).message };
+      }
+
+      if ((await this.settings.get(o.userId)).outreach.sendMode === 'DRY_RUN') {
+        // Everything up to the provider call ran for real (guardrails, rendering, attachments). Nothing leaves.
+        await this.prisma.$transaction([
+          this.prisma.emailEvent.create({
+            data: {
+              userId: o.userId,
+              outreachId: o.id,
+              emailAccountId: account.id,
+              type: 'DRY_RUN',
+              metadata: { to: o.toEmail, subject: o.subject, attachments: (outgoing.attachments ?? []).map((a) => a.filename) },
+            },
+          }),
+          this.prisma.outreach.update({ where: { id: o.id }, data: { status: 'DRAFT', approvedAt: null, error: 'Dry run — rendered and checked, not sent.' } }),
+        ]);
+        if (o.kind === 'FOLLOWUP') await this.prisma.followup.updateMany({ where: { outreachId: o.id, status: 'APPROVED' }, data: { status: 'DRAFT_READY' } });
+        return { status: 'dry_run' };
       }
 
       try {

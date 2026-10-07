@@ -10,7 +10,19 @@ import { formatDateTime } from '@/lib/format';
 
 interface Settings {
   timezone: string;
-  outreach: { dailyLimit: number; dailyInitialLimit: number; companyCooldownDays: number; recipientCooldownDays: number; minMinutesBetweenSends: number; defaultStyle: string };
+  outreach: {
+    dailyLimit: number;
+    dailyInitialLimit: number;
+    companyCooldownDays: number;
+    recipientCooldownDays: number;
+    minMinutesBetweenSends: number;
+    defaultStyle: string;
+    sendMode: 'DRY_RUN' | 'DRAFT_ONLY' | 'APPROVAL_REQUIRED' | 'AUTO_SEND';
+    hourlyLimit: number;
+    perDomainDailyLimit: number;
+    maxJitterSeconds: number;
+    autoSendMinScore: number;
+  };
   followups: { enabled: boolean; delaysDays: number[]; autoSend: boolean; sendWindowStartHour: number; sendWindowEndHour: number; skipWeekends: boolean };
   matching: { minScoreForAi: number; autoAnalyze: boolean; qualifyScore: number };
   automation: { autoPrepare: boolean; dailyPrepareLimit: number; minScoreToPrepare: number; createGmailDrafts: boolean };
@@ -127,6 +139,7 @@ function OutreachSettingsCard() {
   const { data, mutate } = useSWR<{ settings: Settings; ai: { provider: string; model: string | null; llm: boolean } }>('/settings', fetcher);
   const [s, setS] = useState<Settings | null>(null);
   const [delays, setDelays] = useState('');
+  const [confirmation, setConfirmation] = useState('');
   const { busy, run } = useAction();
   useEffect(() => {
     if (data) {
@@ -140,20 +153,42 @@ function OutreachSettingsCard() {
     fn(n);
     setS(n);
   };
+  const enablingAuto = s.outreach.sendMode === 'AUTO_SEND' && data.settings.outreach.sendMode !== 'AUTO_SEND';
+  const AUTO_PHRASE = 'I understand emails will be sent without my review';
   const save = async () => {
     const delaysDays = toRelative(delays.split(',').map((d) => Number(d.trim())));
-    const r = await run('save', () => api('/settings', { method: 'PATCH', body: { ...s, followups: { ...s.followups, delaysDays } } }), 'Settings saved');
+    const body = { ...s, followups: { ...s.followups, delaysDays }, ...(enablingAuto ? { confirmation } : {}) };
+    const r = await run('save', () => api('/settings', { method: 'PATCH', body }), 'Settings saved');
     if (r) mutate();
   };
   return (
     <Card title="Outreach, follow-ups & matching" actions={<Button size="sm" variant="primary" onClick={save} loading={busy === 'save'}>Save</Button>}>
       <div className="space-y-5 text-sm">
+        <div className="space-y-2">
+          <Field label="Send mode" hint="Approval required is the default. Auto-send only approves strong matches whose address is publicly listed or verified; every limit still applies.">
+            <Select value={s.outreach.sendMode} onChange={(e) => up((x) => void (x.outreach.sendMode = e.target.value as Settings['outreach']['sendMode']))}>
+              <option value="DRY_RUN">Dry run — check everything, send nothing</option>
+              <option value="DRAFT_ONLY">Drafts only — prepare drafts, never send</option>
+              <option value="APPROVAL_REQUIRED">Approval required — send what I approve</option>
+              <option value="AUTO_SEND">Auto-send — strong matches without review</option>
+            </Select>
+          </Field>
+          {enablingAuto && (
+            <Field label={`Type "${AUTO_PHRASE}" to enable auto-send`}>
+              <Input value={confirmation} onChange={(e) => setConfirmation(e.target.value)} />
+            </Field>
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <NumberField label="Daily email limit (all)" value={s.outreach.dailyLimit} min={1} max={100} onChange={(n) => up((x) => void (x.outreach.dailyLimit = n))} />
           <NumberField label="Daily new outreach limit" value={s.outreach.dailyInitialLimit} min={1} max={100} onChange={(n) => up((x) => void (x.outreach.dailyInitialLimit = n))} />
           <NumberField label="Company cooldown (days)" value={s.outreach.companyCooldownDays} onChange={(n) => up((x) => void (x.outreach.companyCooldownDays = n))} />
           <NumberField label="Recipient cooldown (days)" value={s.outreach.recipientCooldownDays} onChange={(n) => up((x) => void (x.outreach.recipientCooldownDays = n))} />
           <NumberField label="Minutes between sends" value={s.outreach.minMinutesBetweenSends} max={240} onChange={(n) => up((x) => void (x.outreach.minMinutesBetweenSends = n))} />
+          <NumberField label="Hourly email limit" value={s.outreach.hourlyLimit} min={1} max={30} onChange={(n) => up((x) => void (x.outreach.hourlyLimit = n))} />
+          <NumberField label="Per-domain daily limit" value={s.outreach.perDomainDailyLimit} min={1} max={10} onChange={(n) => up((x) => void (x.outreach.perDomainDailyLimit = n))} />
+          <NumberField label="Random delay up to (seconds)" value={s.outreach.maxJitterSeconds} max={900} onChange={(n) => up((x) => void (x.outreach.maxJitterSeconds = n))} />
+          <NumberField label="Auto-send minimum score" value={s.outreach.autoSendMinScore} min={50} max={100} onChange={(n) => up((x) => void (x.outreach.autoSendMinScore = n))} />
           <Field label="Default email style">
             <Select value={s.outreach.defaultStyle} onChange={(e) => up((x) => void (x.outreach.defaultStyle = e.target.value))}>
               <option value="concise">Concise</option>
@@ -170,7 +205,7 @@ function OutreachSettingsCard() {
             <Input value={delays} onChange={(e) => setDelays(e.target.value)} />
           </Field>
           <label className="flex items-center gap-2">
-            <input type="checkbox" checked={s.followups.autoSend} onChange={(e) => up((x) => void (x.followups.autoSend = e.target.checked))} /> Auto-send follow-ups (otherwise drafts wait for your approval)
+            <input type="checkbox" checked={s.followups.autoSend} onChange={(e) => up((x) => void (x.followups.autoSend = e.target.checked))} /> Auto-send follow-ups (only in Auto-send mode; otherwise drafts wait for your approval)
           </label>
           <div className="grid grid-cols-3 gap-3">
             <NumberField label="Send window start (h)" value={s.followups.sendWindowStartHour} max={23} onChange={(n) => up((x) => void (x.followups.sendWindowStartHour = n))} />

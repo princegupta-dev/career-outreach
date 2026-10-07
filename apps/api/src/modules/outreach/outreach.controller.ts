@@ -124,18 +124,20 @@ export class OutreachController {
   // ─── Suppression list ──────────────────────────────────────────────────────
 
   @Get('suppressions')
-  suppressions(@CurrentUser() user: AuthUser) {
-    return this.prisma.suppression.findMany({ where: { userId: user.id }, orderBy: { createdAt: 'desc' } });
+  async suppressions(@CurrentUser() user: AuthUser) {
+    const rows = await this.prisma.suppression.findMany({ where: { userId: user.id }, orderBy: { createdAt: 'desc' } });
+    // Exposed as contact_suppression rows: email (null for domain-wide), domain, reason, created_at.
+    return rows.map((r) => ({
+      ...r,
+      email: r.kind === 'email' ? r.value : null,
+      domain: r.kind === 'email' ? r.value.split('@')[1] : r.value.replace(/^@/, ''),
+    }));
   }
 
+  /** Add to the do-not-contact list. Takes effect immediately (queued emails + follow-ups are cancelled). */
   @Post('suppressions')
   addSuppression(@CurrentUser() user: AuthUser, @Body(new ZodPipe(z.object({ value: z.string().trim().min(3).max(254), reason: z.string().max(200).default('Manual') }))) body: { value: string; reason: string }) {
-    const value = body.value.toLowerCase();
-    return this.prisma.suppression.upsert({
-      where: { userId_value: { userId: user.id, value } },
-      create: { userId: user.id, value, kind: value.includes('@') && !value.startsWith('@') ? 'email' : 'domain', reason: body.reason },
-      update: { reason: body.reason },
-    });
+    return this.outreach.suppress(user.id, body.value, body.reason);
   }
 
   @Post('suppressions/:id/delete')

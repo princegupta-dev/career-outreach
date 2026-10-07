@@ -6,13 +6,14 @@ import { DomainError } from '../../common/http';
 import { MetricsService } from '../../common/metrics.service';
 import { PrismaService } from '../../common/prisma.service';
 import { ENV, Env } from '../../config/env';
-import { jobContentHash, jobSourceHash } from '../../domain/dedupe';
+import { canonicalizeUrl, jobContentHash, jobDedupeKey, jobSourceHash } from '../../domain/dedupe';
 import { MatchResult, scoreJob } from '../../domain/matching/scorer';
 import { extractJob, JobExtraction, normalizeText, parseSalary } from '../../domain/skills/extract';
 import { JobAnalysis } from '../../providers/ai/ai-provider.interface';
 import { AshbyProvider, GreenhouseProvider, LeverProvider } from '../../providers/jobs/ats.providers';
 import { JobProvider, JobProviderError, JobSearchCriteria, passesBasicFilters, ProviderJob } from '../../providers/jobs/job-provider.interface';
 import { UrlJobProvider } from '../../providers/jobs/url.provider';
+import { CareerPageProvider, RecruiteeProvider, WebSearchProvider, WorkableProvider, YcJobsProvider } from '../../providers/jobs/public-boards';
 import { FEED_PROVIDERS } from '../../providers/jobs/aggregators';
 import { DEFAULT_EXCLUDE_TITLES, DEFAULT_SOURCES } from '../../providers/jobs/default-sources';
 import { ContactsService } from '../contacts/contacts.service';
@@ -55,8 +56,10 @@ export interface ManualJobInput {
 @Injectable()
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
-  readonly providers: JobProvider[] = [new GreenhouseProvider(), new LeverProvider(), new AshbyProvider(), ...FEED_PROVIDERS];
+  /** JobSource implementations. Business logic only talks to the JobProvider interface. */
+  readonly providers: JobProvider[];
   private readonly urlProvider = new UrlJobProvider();
+  private readonly webSearch: WebSearchProvider;
 
   constructor(
     @Inject(ENV) private readonly env: Env,
@@ -71,7 +74,15 @@ export class JobsService {
     private readonly metrics: MetricsService,
     private readonly analytics: AnalyticsService,
     private readonly contacts: ContactsService,
-  ) {}
+  ) {
+    const boards: JobProvider[] = [new GreenhouseProvider(), new LeverProvider(), new AshbyProvider(), new WorkableProvider(), new RecruiteeProvider(), new YcJobsProvider()];
+    this.webSearch = new WebSearchProvider(boards, env.GOOGLE_CSE_API_KEY || undefined, env.GOOGLE_CSE_ID || undefined);
+    this.providers = [...boards, new CareerPageProvider(), this.webSearch, ...FEED_PROVIDERS];
+  }
+
+  get webSearchConfigured(): boolean {
+    return this.webSearch.enabled;
+  }
 
   providerFor(kind: JobProviderKind): JobProvider | undefined {
     return this.providers.find((p) => p.kind === kind);
@@ -85,9 +96,21 @@ export class JobsService {
     if (description.length < 50) throw new DomainError('The job description is too short to analyse (min 50 characters).', 400);
     const sourceHash = jobSourceHash({ provider: pj.provider, externalId: pj.externalId, url: pj.url });
     const contentHash = jobContentHash({ companyName: pj.companyName, title: pj.title, description });
+    const dedupeKey = jobDedupeKey({ companyName: pj.companyName, title: pj.title, location: pj.location });
+    const urls = [pj.url, pj.applicationUrl].map((u) => (u ? canonicalizeUrl(u) : null)).filter((u): u is string => !!u);
 
+    // Duplicate if any of: same external id (source hash), same content, same canonical URL,
+    // or — when the posting has no external id — same company + role + location.
     const dup = await this.prisma.job.findFirst({
-      where: { userId, OR: [{ contentHash }, ...(sourceHash ? [{ sourceHash }] : [])] },
+      where: {
+        userId,
+        OR: [
+          { contentHash },
+          ...(sourceHash ? [{ sourceHash }] : []),
+          ...(urls.length ? [{ canonicalUrl: { in: urls } }] : []),
+          ...(!pj.externalId ? [{ dedupeKey }] : []),
+        ],
+      },
       select: { id: true, score: true, recommendation: true, deletedAt: true },
     });
     if (dup) {
@@ -107,6 +130,11 @@ export class JobsService {
           provider: pj.provider,
           externalId: pj.externalId ?? null,
           url: pj.url ?? null,
+          applicationUrl: pj.applicationUrl ?? pj.url ?? null,
+          sourceUrl: pj.sourceUrl ?? pj.url ?? null,
+          canonicalUrl: urls[0] ?? null,
+          dedupeKey,
+          experienceRequired: pj.experienceText ?? null,
           title: pj.title.trim().slice(0, 300),
           location: pj.location ?? null,
           remote: pj.remote ?? null,
@@ -179,7 +207,7 @@ export class JobsService {
     const job = await this.prisma.job.findUniqueOrThrow({ where: { id: jobId }, include: { company: true, application: true } });
     const profile = await this.profiles.get();
     const settingsHash = await this.settings.hash(job.userId);
-    const scoredWith = hashObject({ profile: profile.hash, settings: settingsHash, content: job.contentHash, company: [job.company.size, job.company.companyType], v: 'v3' });
+    const scoredWith = hashObject({ profile: profile.hash, settings: settingsHash, content: job.contentHash, company: [job.company.size, job.company.companyType], v: 'v4' });
     if (!force && job.scoredWith === scoredWith && job.score != null) return { score: job.score, recommendation: job.recommendation, skipped: true };
 
     const extraction = extractJob({ title: job.title, description: job.description, location: job.location, companyName: job.company.name });
@@ -187,7 +215,10 @@ export class JobsService {
     if (!extraction.salary && job.salaryCurrency) {
       extraction.salary = { min: job.salaryMin, max: job.salaryMax, currency: job.salaryCurrency, period: (job.salaryPeriod as 'year') ?? 'year', raw: '' };
     }
-    const match = scoreJob({ title: job.title, location: job.location, companyName: job.company.name, companySize: job.company.size, companyType: job.company.companyType, extraction }, profile);
+    const match = scoreJob(
+      { title: job.title, location: job.location, companyName: job.company.name, companySize: job.company.size, companyType: job.company.companyType, extraction, postedAt: job.postedAt },
+      profile,
+    );
     await this.prisma.job.update({
       where: { id: jobId },
       data: {
@@ -196,6 +227,9 @@ export class JobsService {
         scoreBreakdown: match as unknown as Prisma.InputJsonValue,
         recommendation: match.recommendation,
         scoredWith,
+        ...(!job.experienceRequired && extraction.minYears != null
+          ? { experienceRequired: extraction.maxYears != null ? `${extraction.minYears}-${extraction.maxYears} years` : `${extraction.minYears}+ years` }
+          : {}),
       },
     });
     const settings = await this.settings.get(job.userId);
@@ -273,8 +307,13 @@ export class JobsService {
 
   /** Seed the curated boards + public feeds so discovery works with zero setup. */
   async ensureDefaultSources(userId: string): Promise<number> {
+    const defaults = [
+      ...DEFAULT_SOURCES,
+      // Web search only once an API key is configured.
+      ...(this.webSearch.enabled ? [{ provider: 'WEB_SEARCH' as const, name: 'Web search (Google Programmable Search)', config: { maxQueries: 10, withinDays: 3 } }] : []),
+    ];
     const r = await this.prisma.jobSource.createMany({
-      data: DEFAULT_SOURCES.map((d) => ({ userId, provider: d.provider, name: d.name, config: d.config as Prisma.InputJsonValue, isDefault: true })),
+      data: defaults.map((d) => ({ userId, provider: d.provider, name: d.name, config: d.config as Prisma.InputJsonValue, isDefault: true })),
       skipDuplicates: true,
     });
     return r.count;
@@ -297,7 +336,7 @@ export class JobsService {
       const all = (await provider.searchJobs({ ...criteria, stats: counter }, config)).map((j) => ({
         ...j,
         companyDomain: j.companyDomain ?? (typeof config.domain === 'string' ? config.domain : null),
-        companyName: typeof config.companyName === 'string' && ['GREENHOUSE', 'LEVER', 'ASHBY'].includes(source.provider) ? config.companyName : j.companyName,
+        companyName: typeof config.companyName === 'string' && ['GREENHOUSE', 'LEVER', 'ASHBY', 'WORKABLE', 'RECRUITEE', 'CAREER_PAGE'].includes(source.provider) ? config.companyName : j.companyName,
       }));
       stats.fetched = Math.max(counter.fetched, all.length);
       const filtered = all.filter((j) => passesBasicFilters(j, criteria));

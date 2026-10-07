@@ -1,5 +1,10 @@
 import { z } from 'zod';
 
+export const SEND_MODES = ['DRY_RUN', 'DRAFT_ONLY', 'APPROVAL_REQUIRED', 'AUTO_SEND'] as const;
+export type SendMode = (typeof SEND_MODES)[number];
+/** Switching to AUTO_SEND must carry this exact confirmation string (UI shows it to the user). */
+export const SEND_MODE_CONFIRMATION = 'I understand emails will be sent without my review';
+
 export const settingsSchema = z.object({
   timezone: z.string().default('Asia/Kolkata'),
   outreach: z
@@ -15,6 +20,22 @@ export const settingsSchema = z.object({
       /** Minimum minutes between two sends (spreads out traffic). */
       minMinutesBetweenSends: z.number().int().min(0).max(240).default(2),
       defaultStyle: z.enum(['concise', 'technical', 'warm']).default('concise'),
+      /**
+       * DRY_RUN: render + check, never hand anything to the mail provider.
+       * DRAFT_ONLY: mirror drafts into the mailbox, never send.
+       * APPROVAL_REQUIRED (default): send only what you approve.
+       * AUTO_SEND: strong matches with a publicly listed/verified address are approved automatically.
+       * AUTO_SEND is never switched on implicitly — see SEND_MODE_CONFIRMATION.
+       */
+      sendMode: z.enum(SEND_MODES).default('APPROVAL_REQUIRED'),
+      /** Max emails (all kinds) per rolling hour. */
+      hourlyLimit: z.number().int().min(1).max(30).default(4),
+      /** Max emails per recipient domain per calendar day. */
+      perDomainDailyLimit: z.number().int().min(1).max(10).default(2),
+      /** Extra random delay (0..N seconds) added to queued sends so they don't go out in bursts. */
+      maxJitterSeconds: z.number().int().min(0).max(900).default(120),
+      /** AUTO_SEND only: minimum match score for an automatic initial email. */
+      autoSendMinScore: z.number().int().min(50).max(100).default(80),
     })
     .default({
       dailyLimit: 15,
@@ -23,6 +44,11 @@ export const settingsSchema = z.object({
       recipientCooldownDays: 90,
       minMinutesBetweenSends: 2,
       defaultStyle: 'concise',
+      sendMode: 'APPROVAL_REQUIRED',
+      hourlyLimit: 4,
+      perDomainDailyLimit: 2,
+      maxJitterSeconds: 120,
+      autoSendMinScore: 80,
     }),
   followups: z
     .object({

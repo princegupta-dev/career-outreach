@@ -5,12 +5,14 @@ import type { ApplicationStatus } from '@prisma/client';
  * can always be reopened to SHORTLISTED manually.
  */
 const TRANSITIONS: Record<ApplicationStatus, ApplicationStatus[]> = {
-  DISCOVERED: ['QUALIFIED', 'SHORTLISTED', 'CLOSED'],
-  QUALIFIED: ['SHORTLISTED', 'CONTACT_FOUND', 'RESUME_READY', 'CLOSED', 'DISCOVERED'],
-  SHORTLISTED: ['CONTACT_FOUND', 'RESUME_READY', 'EMAIL_READY', 'QUALIFIED', 'CLOSED'],
-  CONTACT_FOUND: ['RESUME_READY', 'EMAIL_READY', 'SHORTLISTED', 'CLOSED'],
-  RESUME_READY: ['CONTACT_FOUND', 'EMAIL_READY', 'CLOSED'],
-  EMAIL_READY: ['EMAIL_SENT', 'RESUME_READY', 'CONTACT_FOUND', 'CLOSED'],
+  DISCOVERED: ['QUALIFIED', 'SHORTLISTED', 'APPLIED', 'SKIPPED', 'CLOSED'],
+  QUALIFIED: ['SHORTLISTED', 'CONTACT_FOUND', 'RESUME_READY', 'APPLIED', 'SKIPPED', 'CLOSED', 'DISCOVERED'],
+  SHORTLISTED: ['CONTACT_FOUND', 'RESUME_READY', 'EMAIL_READY', 'APPLIED', 'QUALIFIED', 'SKIPPED', 'CLOSED'],
+  CONTACT_FOUND: ['RESUME_READY', 'EMAIL_READY', 'SHORTLISTED', 'APPLIED', 'SKIPPED', 'CLOSED'],
+  RESUME_READY: ['CONTACT_FOUND', 'EMAIL_READY', 'APPLIED', 'SKIPPED', 'CLOSED'],
+  EMAIL_READY: ['EMAIL_SENT', 'RESUME_READY', 'CONTACT_FOUND', 'APPLIED', 'SKIPPED', 'CLOSED'],
+  /** Applied on the company portal; a cold email may still follow. */
+  APPLIED: ['EMAIL_SENT', 'REPLIED', 'INTERVIEW', 'REJECTED', 'OFFER', 'CLOSED'],
   EMAIL_SENT: ['WAITING_FOR_REPLY', 'FOLLOWUP_SCHEDULED', 'REPLIED', 'INTERVIEW', 'REJECTED', 'CLOSED'],
   WAITING_FOR_REPLY: ['FOLLOWUP_SCHEDULED', 'REPLIED', 'INTERVIEW', 'REJECTED', 'CLOSED'],
   FOLLOWUP_SCHEDULED: ['WAITING_FOR_REPLY', 'REPLIED', 'INTERVIEW', 'REJECTED', 'CLOSED'],
@@ -19,6 +21,7 @@ const TRANSITIONS: Record<ApplicationStatus, ApplicationStatus[]> = {
   OFFER: ['CLOSED', 'REJECTED'],
   REJECTED: ['CLOSED', 'SHORTLISTED'],
   CLOSED: ['SHORTLISTED'],
+  SKIPPED: ['SHORTLISTED', 'DISCOVERED'],
 };
 
 /** Ordered pipeline, used to avoid moving an application "backwards" automatically. */
@@ -29,6 +32,7 @@ export const PIPELINE_ORDER: ApplicationStatus[] = [
   'CONTACT_FOUND',
   'RESUME_READY',
   'EMAIL_READY',
+  'APPLIED',
   'EMAIL_SENT',
   'WAITING_FOR_REPLY',
   'FOLLOWUP_SCHEDULED',
@@ -37,6 +41,7 @@ export const PIPELINE_ORDER: ApplicationStatus[] = [
   'OFFER',
   'REJECTED',
   'CLOSED',
+  'SKIPPED',
 ];
 
 /** Stages before any email is sent. */
@@ -72,7 +77,7 @@ export function shouldAutoAdvance(current: ApplicationStatus, target: Applicatio
   return PIPELINE_ORDER.indexOf(target) > PIPELINE_ORDER.indexOf(current);
 }
 
-const TERMINAL: ApplicationStatus[] = ['OFFER', 'REJECTED', 'CLOSED'];
+const TERMINAL: ApplicationStatus[] = ['OFFER', 'REJECTED', 'CLOSED', 'SKIPPED'];
 
 /**
  * System events (email sent, reply received) are facts: they may fast-forward an
@@ -99,6 +104,8 @@ export function nextActionFor(status: ApplicationStatus): string {
       return 'Generate email';
     case 'EMAIL_READY':
       return 'Review & send email';
+    case 'APPLIED':
+      return 'Applied — send a cold email if a contact is known';
     case 'EMAIL_SENT':
     case 'WAITING_FOR_REPLY':
       return 'Wait for reply';
@@ -113,4 +120,63 @@ export function nextActionFor(status: ApplicationStatus): string {
     default:
       return '—';
   }
+}
+
+/**
+ * Dashboard pipeline status (the simplified vocabulary used by the API):
+ * DISCOVERED → VERIFIED → SHORTLISTED → APPLICATION_READY → APPLIED → EMAIL_SENT
+ * → FOLLOW_UP_DUE → REPLIED → INTERVIEW → OFFER | REJECTED | SKIPPED.
+ * Derived from the detailed internal status so no workflow state is duplicated.
+ */
+export const PIPELINE_STATUSES = [
+  'DISCOVERED',
+  'VERIFIED',
+  'SHORTLISTED',
+  'APPLICATION_READY',
+  'APPLIED',
+  'EMAIL_SENT',
+  'FOLLOW_UP_DUE',
+  'REPLIED',
+  'INTERVIEW',
+  'OFFER',
+  'REJECTED',
+  'SKIPPED',
+] as const;
+export type PipelineStatus = (typeof PIPELINE_STATUSES)[number];
+
+export function pipelineStatus(status: ApplicationStatus, opts: { followupDue?: boolean } = {}): PipelineStatus {
+  switch (status) {
+    case 'DISCOVERED':
+      return 'DISCOVERED';
+    case 'QUALIFIED':
+      return 'VERIFIED';
+    case 'SHORTLISTED':
+      return 'SHORTLISTED';
+    case 'CONTACT_FOUND':
+    case 'RESUME_READY':
+    case 'EMAIL_READY':
+      return 'APPLICATION_READY';
+    case 'APPLIED':
+      return 'APPLIED';
+    case 'EMAIL_SENT':
+    case 'WAITING_FOR_REPLY':
+    case 'FOLLOWUP_SCHEDULED':
+      return opts.followupDue ? 'FOLLOW_UP_DUE' : 'EMAIL_SENT';
+    case 'REPLIED':
+      return 'REPLIED';
+    case 'INTERVIEW':
+      return 'INTERVIEW';
+    case 'OFFER':
+      return 'OFFER';
+    case 'REJECTED':
+      return 'REJECTED';
+    case 'CLOSED':
+    case 'SKIPPED':
+      return 'SKIPPED';
+  }
+}
+
+/** Internal statuses that belong to a dashboard status (for filtering). */
+export function internalStatusesFor(p: PipelineStatus): ApplicationStatus[] {
+  return (PIPELINE_ORDER as ApplicationStatus[]).filter((s) => pipelineStatus(s) === p || (p === 'FOLLOW_UP_DUE' && pipelineStatus(s) === 'EMAIL_SENT'));
 }

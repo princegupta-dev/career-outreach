@@ -174,7 +174,7 @@ export class EmailSyncService {
         create: { userId: root.userId, value: normalizeEmail(root.toEmail), kind: 'email', reason: 'Bounced' },
         update: {},
       });
-      await tx.contact.update({ where: { id: root.contactId }, data: { confidence: 'UNKNOWN', notes: 'Email bounced — address may be invalid' } });
+      await tx.contact.update({ where: { id: root.contactId }, data: { confidence: 'UNKNOWN', verificationStatus: 'BOUNCED', notes: 'Email bounced — address may be invalid' } });
     });
     await this.followups.cleanupCancelledDrafts(root.id);
   }

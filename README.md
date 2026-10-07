@@ -83,9 +83,34 @@ Sources are seeded automatically on sign-up (Settings → *Job discovery sources
 | We Work Remotely | public RSS | company website extracted → contact lookup |
 | Remotive, Himalayas, Jobicy, Remote OK, Arbeitnow | public JSON APIs | remote roles; attribution links kept |
 | ~40 company boards | Greenhouse / Ashby / Lever public job-board APIs | verified to list India-based or globally-remote backend roles (Okta, MongoDB, Stripe, Coinbase, Databricks, GitLab, Sarvam AI, Plane, Supabase, ClickHouse, …) |
+| YC — Work at a Startup | public job pages on ycombinator.com/jobs (robots.txt allows `/jobs`) | full description from each posting; founders' names (no emails — YC publishes none) |
+| Workable / Recruitee boards | public careers APIs | add with a board token |
+| Company career pages | schema.org `JobPosting` data the site publishes for search engines | add the careers URL; robots.txt respected |
+| Web search | Google Programmable Search JSON API (`GOOGLE_CSE_API_KEY`, `GOOGLE_CSE_ID`) | searches the queries below × Indian cities on public ATS boards (last 1-7 days); every hit is read from its original posting |
 
 Add any company: Settings → board token (`boards.greenhouse.io/<token>`, `jobs.ashbyhq.com/<token>`,
-`jobs.lever.co/<token>`). Single jobs can still be added by URL or pasted JD (optional).
+`jobs.lever.co/<token>`, `apply.workable.com/<token>`, `<token>.recruitee.com`) or a careers-page URL.
+Single jobs can still be added by URL or pasted JD.
+
+**Not automated, on purpose** (`GET /api/job-sources/catalog` lists every source and why):
+Naukri, Wellfound, Instahyre, Hirist and LinkedIn have no public API and either refuse automated
+requests or require a login. The app never logs in, solves CAPTCHAs or works around bot protection
+or rate limits — paste the JD (or add the company's own ATS board, where most of these jobs also live).
+
+Every source implements one `JobProvider` interface (`searchJobs`, `getJob`, `supportsUrl`), so the
+pipeline never depends on a particular board. Web-search queries: "Senior Backend Engineer Node.js",
+"Senior Software Engineer Node.js", "Senior Node.js Engineer/Developer", "Backend Engineer TypeScript",
+"Node.js TypeScript", "Node.js NestJS", "Backend Engineer Redis", "Backend Engineer AWS Node.js",
+"Senior Backend Engineer", "AI Backend Engineer", "Backend Engineer GenAI" × Remote India / Bangalore /
+Bengaluru / Gurgaon / Gurugram / Noida / Delhi / Pune / Hyderabad / Mumbai / worldwide.
+
+**Stored per job:** source, external id, company, role, description, location, remote, posting date,
+discovered at, salary min/max/currency, experience required, application URL and source URL.
+
+**Deduplication:** a posting is a duplicate if it matches an existing job by external id (per
+provider), by canonical URL (tracking parameters stripped, across providers), by content hash, or —
+when it has no external id — by `normalized company + normalized role + normalized location`
+("Sr. Backend Engineer, Bengaluru" = "Senior Backend Engineer, Bangalore").
 
 **Pipeline (no LLM until the end):** listed postings → title keywords + exclusions (e.g. frontend,
 manager, other primary languages) → region (remote jobs restricted to US/EU/UK are dropped;
@@ -94,7 +119,7 @@ days) → deterministic score → only STRONG APPLY / APPLY ≥ threshold go to 
 are listed without descriptions; full text is fetched only for postings that pass the filters.
 A live dry-run on Oct 6, 2026: 3,535 postings listed → 57 after filters → 18 worth applying to.
 
-Schedule: daily at 07:00 IST (`DISCOVERY_CRON=30 1 * * *`, container time is UTC), on first
+Schedule: 07:00, 13:00 and 19:00 IST (`DISCOVERY_CRON=30 1,7,13 * * *`, container time is UTC), on first
 worker start, on sign-up, and on **Find jobs now**.
 
 > **Network note.** Some networks (corporate firewalls, antivirus "HTTPS scanning") intercept job
@@ -149,6 +174,37 @@ daily limits, cooldowns, suppression list). If you send a draft yourself from Gm
 (every 10 min, or *Check for replies*) records it and schedules follow-ups. Cancelled follow-ups
 have their drafts deleted so they can't be sent by accident.
 
+## Scoring (0-100)
+
+Deterministic, explainable, no LLM: technical stack **30** · experience/seniority **20** · role **15** ·
+location **10** · compensation **10** · AI relevance **5** · company/product **5** · freshness **5**
+(posted today/24 h = 5, ≤ 72 h = 4, ≤ 7 days = 3). Each job stores `score`, `technical_score`,
+`seniority_score`, `role_score`, `location_score`, `compensation_score`, `ai_score`, `company_score`,
+`freshness_score`, `strong_matches[]`, `gaps[]` and a recommendation **APPLY / CONSIDER / SKIP**.
+An undisclosed salary is neutral (never a reason to skip). Your current employer (`current_company`
+in the profile) is always SKIP and is never emailed.
+
+## Send modes and limits
+
+| Mode | What happens |
+| --- | --- |
+| `DRY_RUN` | Everything runs (guardrails, rendering, PDF) but nothing is handed to the mail provider; a `DRY_RUN` event is logged |
+| `DRAFT_ONLY` | Drafts are prepared (and mirrored into Gmail Drafts); sending is refused |
+| `APPROVAL_REQUIRED` (default) | Only emails you approve are sent |
+| `AUTO_SEND` | Strong matches (score ≥ `autoSendMinScore`, default 80) whose address is publicly listed/verified and whose draft has no writer warnings are approved automatically — every limit still applies |
+
+`AUTO_SEND` is never switched on implicitly: the request must include the confirmation text
+`I understand emails will be sent without my review` (Settings shows the field). Follow-ups are
+sent without review only when **both** `AUTO_SEND` and "auto-send follow-ups" are on.
+
+Limits (Settings or `PUT /api/pipeline/send-policy`): daily (15), daily new outreach (10), hourly (4),
+per recipient domain per day (2), minutes between sends (2) plus a random 0-120 s delay, company
+cooldown (30 days), recipient cooldown (90 days). Limits defer a send; they never drop it.
+
+**Do-not-contact:** `POST /api/suppressions` with an address or a domain (`@acme.com`). It takes
+effect immediately — queued emails and follow-ups to it are cancelled — and "please stop" replies
+and bounces are added automatically.
+
 ## Follow-ups and replies
 
 Default: day **4, 9 and 16** after the first email (anchored to the first email; moved into your
@@ -160,17 +216,43 @@ address); "please stop" replies are suppressed automatically. Adding an intervie
 
 ## Contacts
 
-Only legitimate, published sources — email addresses are never guessed:
+Only legitimate, published sources — email addresses are never guessed or pattern-generated:
 
 1. addresses in the posting itself (HN posts, "send your CV to …"),
-2. hiring inboxes published on the company's own website (`careers@`, `jobs@`, … on its domain;
-   personal addresses on the site are ignored),
-3. Hunter.io domain search (optional, `HUNTER_API_KEY`, free tier available).
+2. inboxes the company publishes on its own website — careers/jobs pages first, then the contact
+   page; a general address (`hello@`, `info@`) only when no hiring inbox exists,
+3. YC company pages (founder names only — no emails are published there),
+4. Hunter.io domain search (optional, `HUNTER_API_KEY`) — **only** addresses Hunter found published
+   on a public page (the page is stored as the source); pattern-derived guesses are discarded.
 
-Each contact has a source and confidence. When none is found, the job page links to LinkedIn
-people searches (engineering manager / recruiter / CTO at that company) so you can add one.
-Ranking depends on company size (founder/CTO first at early startups; hiring manager / technical
-recruiter first at large companies).
+Every address stores `email`, `source_url`, `source_type`, `verification_status`, `discovered_at` and
+`confidence`. Verification: `UNKNOWN`, `PUBLICLY_LISTED`, `VERIFIED`, `INVALID`, `BOUNCED`. Only
+`PUBLICLY_LISTED` / `VERIFIED` addresses are ever emailed; a bounce marks the address `BOUNCED` and
+suppresses it. A manually added address is `UNKNOWN` until you record the public page it is
+published on. No sendable address → `EMAIL_NOT_FOUND` (the job page links to LinkedIn people
+searches so you can find one yourself).
+
+Priority: (1) recruiter named on the job, (2) hiring manager / engineering lead listed for the role,
+(3) hiring inbox published on the job, (4) company careers inbox, (5) other company hiring inbox,
+(6) general company contact.
+
+## Dashboard API
+
+All under `/api`, session cookie + CSRF header, same as the web app.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /pipeline/summary` | applications per status, jobs posted in the last 24 h / 72 h / 7 days, today's send budget, drafts awaiting approval, follow-ups due |
+| `GET /pipeline/applications?status=&freshness=24h\|72h\|7d&minScore=&sort=score\|recent\|posted` | application list: company, role, job URL, posting/discovery dates, status, match score + breakdown, resume version, contact (email, source, verification), email status, last contact, next follow-up, reply status, interview stage |
+| `GET /pipeline/applications/:id` | one application |
+| `POST /pipeline/applications/:id/applied` · `/skip` | record a portal application / skip |
+| `GET /pipeline/emails` | sent-email log: message id, thread id, recipient, subject, sent at, reply detected / at |
+| `GET` / `PUT /pipeline/send-policy` | send mode and rate limits |
+| `GET /job-sources/catalog` | every job source, how it is accessed, and the ones that are manual-only |
+
+Application statuses: `DISCOVERED → VERIFIED → SHORTLISTED → APPLICATION_READY → APPLIED →
+EMAIL_SENT → FOLLOW_UP_DUE → REPLIED → INTERVIEW → OFFER | REJECTED | SKIPPED` (derived from the
+detailed workflow state, so the dashboard can't drift from what actually happened).
 
 ## AI and cost
 
@@ -187,7 +269,7 @@ calls, latency and tokens.
 
 See `.env.example`. Key ones: `DATABASE_URL`, `REDIS_URL`, `SESSION_SECRET`, `ENCRYPTION_KEY`
 (generated automatically in Docker if absent), `APP_URL`, `EMAIL_PROVIDER` (`sandbox`|`gmail`),
-`GOOGLE_*`, `AI_PROVIDER`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `HUNTER_API_KEY`,
+`GOOGLE_*`, `AI_PROVIDER`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `HUNTER_API_KEY`, `GOOGLE_CSE_API_KEY`, `GOOGLE_CSE_ID`,
 `DISCOVERY_CRON`, `EMAIL_SYNC_CRON`, `FOLLOWUP_CRON`, `CANDIDATE_PROFILE_PATH`.
 
 Sandbox mode (`EMAIL_PROVIDER=sandbox`, the default) keeps a local mailbox in Redis: nothing is

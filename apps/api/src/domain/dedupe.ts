@@ -61,3 +61,43 @@ export function normalizeEmail(email: string): string {
 export function emailDomain(email: string): string {
   return normalizeEmail(email).split('@')[1] ?? '';
 }
+
+/** "Sr. Backend Engineer (Node.js)" → "senior backend engineer node js". Seniority is kept: senior ≠ mid-level. */
+export function normalizeRole(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/\bsr\.?(?=\s)/g, 'senior')
+    .replace(/\bjr\.?(?=\s)/g, 'junior')
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\b(m f d|f m x|m w d|h f)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const CITY_ALIASES: Array<[RegExp, string]> = [
+  [/\bbengaluru\b/g, 'bangalore'],
+  [/\bgurugram\b/g, 'gurgaon'],
+  [/\bnew delhi\b/g, 'delhi'],
+  [/\bbombay\b/g, 'mumbai'],
+  [/\bwork from home\b|\bwfh\b/g, 'remote'],
+];
+
+/** "Bengaluru, Karnataka, India" and "Bangalore, India" → the same key. */
+export function normalizeLocation(location: string | null | undefined): string {
+  let s = (location ?? '').toLowerCase();
+  for (const [re, to] of CITY_ALIASES) s = s.replace(re, to);
+  const tokens = s
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(' ')
+    .filter((t) => t && !['india', 'in', 'karnataka', 'haryana', 'maharashtra', 'telangana', 'up', 'uttar', 'pradesh', 'ncr', 'hybrid', 'onsite', 'on', 'site', 'office'].includes(t));
+  return [...new Set(tokens)].sort().join(' ');
+}
+
+/**
+ * Deterministic duplicate key for postings without an external id:
+ * normalized company + normalized role + normalized location.
+ */
+export function jobDedupeKey(input: { companyName: string; title: string; location?: string | null }): string {
+  return sha256([normalizeCompanyName(input.companyName), normalizeRole(input.title), normalizeLocation(input.location)].join('|'));
+}

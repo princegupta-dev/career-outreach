@@ -1,3 +1,4 @@
+import { PipelineController } from './modules/applications/pipeline.controller';
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
@@ -28,7 +29,7 @@ import { ResumeController } from './modules/resume/resume.controller';
     DomainModule,
     JwtModule.register({ secret: loadEnv().SESSION_SECRET, signOptions: { algorithm: 'HS256', issuer: 'job-hunter' }, verifyOptions: { algorithms: ['HS256'], issuer: 'job-hunter' } }),
   ],
-  controllers: [AuthController, ProfileController, JobsController, ContactsController, ResumeController, OutreachController, EmailController, DashboardController, DiscoveryController, HealthController],
+  controllers: [AuthController, ProfileController, JobsController, ContactsController, ResumeController, OutreachController, EmailController, DashboardController, DiscoveryController, HealthController, PipelineController],
   providers: [
     AuthService,
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

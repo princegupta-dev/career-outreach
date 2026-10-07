@@ -18,6 +18,12 @@ export interface ProviderJob {
   salaryText?: string | null;
   /** Contacts published in the posting itself (e.g. HN "email me at …"). */
   contacts?: ContactCandidate[];
+  /** Where to apply, when different from `url` (e.g. YC listing → company ATS). */
+  applicationUrl?: string | null;
+  /** Page the posting was discovered on, when different from `url` (e.g. a search result). */
+  sourceUrl?: string | null;
+  /** Experience requirement as published ("4-6 years", "3+ years"). */
+  experienceText?: string | null;
 }
 
 export interface JobSearchCriteria {

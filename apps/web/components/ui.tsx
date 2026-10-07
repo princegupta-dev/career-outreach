@@ -81,6 +81,7 @@ const STATUS_TONE: Partial<Record<ApplicationStatus, 'slate' | 'green' | 'blue' 
   CONTACT_FOUND: 'violet',
   RESUME_READY: 'violet',
   EMAIL_READY: 'violet',
+  APPLIED: 'blue',
   EMAIL_SENT: 'amber',
   WAITING_FOR_REPLY: 'amber',
   FOLLOWUP_SCHEDULED: 'amber',

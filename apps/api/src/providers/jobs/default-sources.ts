@@ -3,7 +3,7 @@ import type { JobProviderKind } from '@prisma/client';
 export interface DefaultSource {
   provider: JobProviderKind;
   name: string;
-  config: { boardToken?: string; companyName?: string; domain?: string };
+  config: { boardToken?: string; companyName?: string; domain?: string; url?: string; paths?: string[] };
 }
 
 /**
@@ -21,6 +21,7 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
   { provider: 'JOBICY', name: 'Jobicy', config: {} },
   { provider: 'REMOTEOK', name: 'Remote OK', config: {} },
   { provider: 'ARBEITNOW', name: 'Arbeitnow', config: {} },
+  { provider: 'YC_JOBS', name: 'YC — Work at a Startup', config: {} },
 
   // Company boards — India offices / India-friendly remote
   ...(

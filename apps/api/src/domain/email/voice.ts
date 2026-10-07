@@ -27,6 +27,10 @@ export const BANNED_PHRASES: Array<[RegExp, string]> = [
   [/\bin today'?s fast-paced\b/i, "in today's fast-paced"],
   [/\bgame[- ]changer\b/i, 'game-changer'],
   [/\bunparalleled\b/i, 'unparalleled'],
+  [/\bpassionate\b|\bpassion for\b/i, 'passionate'],
+  [/\bdream (job|opportunity|role|company)\b/i, 'dream opportunity'],
+  [/\bexcited to (apply|share|reach out)\b/i, 'excited to apply'],
+  [/\bi am writing to\b/i, 'I am writing to'],
 ];
 
 export interface EmailDraftLike {

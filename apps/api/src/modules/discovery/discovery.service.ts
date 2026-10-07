@@ -100,13 +100,14 @@ export class DiscoveryService {
    * Prepare outreach for the best new matches (daily limit): find a contact,
    * tailor the resume, write the email and mirror it into Gmail Drafts.
    */
-  async prepareTop(userId: string): Promise<{ prepared: number; considered: number }> {
+  async prepareTop(userId: string): Promise<{ prepared: number; considered: number; autoApproved: number }> {
+    const stats = { autoApproved: 0 };
     const s = await this.settings.get(userId);
-    if (!s.automation.autoPrepare || s.automation.dailyPrepareLimit <= 0) return { prepared: 0, considered: 0 };
+    if (!s.automation.autoPrepare || s.automation.dailyPrepareLimit <= 0) return { prepared: 0, considered: 0, autoApproved: 0 };
     const dayStart = startOfLocalDay(new Date(), s.timezone);
     const already = await this.prisma.application.count({ where: { userId, autoPreparedAt: { gte: dayStart } } });
     let remaining = s.automation.dailyPrepareLimit - already;
-    if (remaining <= 0) return { prepared: 0, considered: 0 };
+    if (remaining <= 0) return { prepared: 0, considered: 0, autoApproved: 0 };
     const candidates = await this.prisma.job.findMany({
       where: {
         userId,
@@ -129,7 +130,9 @@ export class DiscoveryService {
         await this.resumes.tailor(userId, job.id, { useAi: this.ai.usesLlm });
         const app = await this.prisma.application.findUniqueOrThrow({ where: { id: appId }, include: { contact: true } });
         if (app.contact?.email) {
-          await this.outreach.generateInitial(userId, appId);
+          const draft = await this.outreach.generateInitial(userId, appId);
+          // AUTO_SEND only (never the default): strong match + publicly listed/verified address.
+          if (await this.outreach.autoApproveIfAllowed(userId, draft.id)) stats.autoApproved++;
         }
         await this.prisma.application.update({ where: { id: appId }, data: { autoPreparedAt: new Date() } });
         prepared++;
@@ -140,7 +143,7 @@ export class DiscoveryService {
         await this.prisma.application.update({ where: { id: appId }, data: { autoPreparedAt: new Date(), notes: `Auto-prepare failed: ${(e as Error).message.slice(0, 200)}` } });
       }
     }
-    return { prepared, considered: candidates.length };
+    return { prepared, considered: candidates.length, autoApproved: stats.autoApproved };
   }
 
   /** "We found X relevant jobs for you today." */

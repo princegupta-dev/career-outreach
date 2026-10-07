@@ -49,7 +49,7 @@ describe('Outreach workflow (e2e)', () => {
     csrf = (await get('/auth/csrf').expect(200)).body.csrfToken;
     await post('/auth/register', { email: 'prince@example.com', password: 'correct-horse-battery', name: 'Prince Gupta' }).expect(201);
     // Allow back-to-back sends inside the test.
-    await patch('/settings', { outreach: { minMinutesBetweenSends: 0 } }).expect(200);
+    await patch('/settings', { outreach: { minMinutesBetweenSends: 0, maxJitterSeconds: 0 } }).expect(200);
   });
 
   afterAll(async () => {
@@ -64,7 +64,8 @@ describe('Outreach workflow (e2e)', () => {
     const job = (await get(`/jobs/${jobId}`)).body;
     expect(job.scoreBreakdown.strong).toEqual(expect.arrayContaining(['Node.js', 'TypeScript', 'Redis']));
     expect(job.scoreBreakdown.missing).not.toContain('Node.js');
-    expect(job.scoreBreakdown.components).toHaveLength(7);
+    expect(job.scoreBreakdown.components).toHaveLength(8);
+    expect(job.scoreBreakdown.breakdown).toMatchObject({ score: job.score, recommendation: 'APPLY' });
 
     // Duplicate import is detected.
     const dup = await post('/jobs/manual', { title: 'Senior Backend Engineer', companyName: 'AcmePay', description: BACKEND_JD, mode: 'paste' }).expect(201);
@@ -227,9 +228,15 @@ describe('Outreach workflow (e2e)', () => {
     await expect(outreach.sendNow(d3.id)).rejects.toBeInstanceOf(RetryLaterError);
     expect((await prisma.outreach.findUniqueOrThrow({ where: { id: d3.id } })).status).toBe('APPROVED');
 
-    // Suppressed domain → approval refused.
-    await post('/suppressions', { value: 'hooli.io', reason: 'test' }).expect(201);
-    await post(`/outreach/${d3.id}/approve`).expect(422);
+    // Suppressed domain → the approved-but-unsent email is cancelled immediately and never sent.
+    const sup = (await post('/suppressions', { value: 'hooli.io', reason: 'test' }).expect(201)).body;
+    expect(sup).toMatchObject({ domain: 'hooli.io', email: null, emailsCancelled: 1 });
+    expect((await prisma.outreach.findUniqueOrThrow({ where: { id: d3.id } })).status).toBe('CANCELLED');
+    expect(await outreach.sendNow(d3.id)).toMatchObject({ status: 'skipped' });
+    await post(`/outreach/${d3.id}/approve`).expect(409);
+    // A fresh draft to the suppressed domain can't be approved either.
+    const d4 = (await post(`/applications/${c.appId}/email`, { regenerate: true }).expect(201)).body;
+    await post(`/outreach/${d4.id}/approve`).expect(422);
   });
 
   it('protects the API: auth required, CSRF enforced, input validated', async () => {
