@@ -5,6 +5,7 @@ import { Suspense, useEffect, useState } from 'react';
 import useSWR from 'swr';
 import { PageHeader } from '@/components/shell';
 import { Badge, Button, Card, Field, Input, Select, Spinner, useAction, useToast } from '@/components/ui';
+import { ResumeStudioCard } from '@/components/resume-studio';
 import { api, fetcher } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 
@@ -56,6 +57,7 @@ function SettingsInner() {
     <>
       <PageHeader title="Settings" />
       <div className="grid gap-6 lg:grid-cols-2">
+        <ResumeStudioCard />
         <EmailCard />
         <OutreachSettingsCard />
         <SourcesCard />
@@ -128,6 +130,11 @@ function OutreachSettingsCard() {
   const [s, setS] = useState<Settings | null>(null);
   const [delays, setDelays] = useState('');
   const { busy, run } = useAction();
+  const toast = useToast();
+  const testAi = async () => {
+    const r = await run('ai-check', () => api<{ ok: boolean; detail: string }>('/ai/check'));
+    if (r) toast(r.detail, r.ok ? 'ok' : 'error');
+  };
   useEffect(() => {
     if (data) {
       setS(structuredClone(data.settings));
@@ -203,7 +210,10 @@ function OutreachSettingsCard() {
         <div className="space-y-3 border-t border-slate-100 pt-4">
           <p className="text-xs text-ink-muted">
             AI provider: <b>{data.ai.provider}</b>
-            {data.ai.model && ` (${data.ai.model})`}. Only jobs at or above the AI threshold are sent to the LLM.
+            {data.ai.model && ` (${data.ai.model})`}. Only jobs at or above the AI threshold are sent to the LLM.{' '}
+            <button type="button" className="underline" disabled={busy === 'ai-check'} onClick={testAi}>
+              {busy === 'ai-check' ? 'Testing…' : 'Test AI connection'}
+            </button>
           </p>
           <div className="grid grid-cols-2 gap-3">
             <NumberField label="AI analysis threshold (score)" value={s.matching.minScoreForAi} max={100} onChange={(n) => up((x) => void (x.matching.minScoreForAi = n))} />

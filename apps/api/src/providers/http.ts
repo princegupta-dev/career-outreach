@@ -28,6 +28,8 @@ export function describeNetworkError(host: string, err: unknown): FetchError {
 }
 
 export interface FetchOptions {
+  /** Extra attempts after a transient failure (HTTP 429/5xx, timeout, connection reset). Default 0. */
+  retries?: number;
   timeoutMs?: number;
   maxBytes?: number;
   headers?: Record<string, string>;
@@ -35,8 +37,34 @@ export interface FetchOptions {
   body?: string;
 }
 
-/** fetch with timeout + response size cap. */
-export async function httpFetch(url: string, opts: FetchOptions = {}): Promise<{ status: number; text: string; contentType: string }> {
+/** Backoff for retries (tests shrink it). Retry-After is honoured up to maxDelayMs. */
+export const httpRetry = { baseDelayMs: 700, maxDelayMs: 10_000 };
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+function isTransient(err: unknown): boolean {
+  if (!(err instanceof FetchError)) return false;
+  // Firewall interception, DNS failure and "response too large" will not fix themselves in a second.
+  if (err.code === 'TLS_INTERCEPTED' || err.code === 'ENOTFOUND' || err.code === 'EAI_AGAIN') return false;
+  return err.status === undefined && !/too large/i.test(err.message);
+}
+
+/** fetch with timeout, response size cap and (opt-in) retries with backoff on transient failures. */
+export async function httpFetch(url: string, opts: FetchOptions = {}): Promise<{ status: number; text: string; contentType: string; retryAfterSec?: number }> {
+  const retries = opts.retries ?? 0;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await httpFetchOnce(url, opts);
+      if (attempt >= retries || !RETRYABLE_STATUS.has(res.status)) return res;
+      await sleep(Math.min(httpRetry.maxDelayMs, res.retryAfterSec != null ? res.retryAfterSec * 1000 : httpRetry.baseDelayMs * 2 ** attempt));
+    } catch (err) {
+      if (attempt >= retries || !isTransient(err)) throw err;
+      await sleep(Math.min(httpRetry.maxDelayMs, httpRetry.baseDelayMs * 2 ** attempt));
+    }
+  }
+}
+
+async function httpFetchOnce(url: string, opts: FetchOptions): Promise<{ status: number; text: string; contentType: string; retryAfterSec?: number }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 15_000);
   try {
@@ -63,7 +91,8 @@ export async function httpFetch(url: string, opts: FetchOptions = {}): Promise<{
         chunks.push(value);
       }
     }
-    return { status: res.status, text: Buffer.concat(chunks).toString('utf8'), contentType: res.headers.get('content-type') ?? '' };
+    const retryAfter = Number(res.headers.get('retry-after'));
+    return { status: res.status, text: Buffer.concat(chunks).toString('utf8'), contentType: res.headers.get('content-type') ?? '', ...(Number.isFinite(retryAfter) && retryAfter >= 0 && res.headers.get('retry-after') ? { retryAfterSec: retryAfter } : {}) };
   } catch (err) {
     if (err instanceof FetchError) throw err;
     if ((err as Error).name === 'AbortError') throw new FetchError(`Timed out fetching ${new URL(url).hostname}`);
@@ -74,7 +103,7 @@ export async function httpFetch(url: string, opts: FetchOptions = {}): Promise<{
 }
 
 export async function fetchJson<T>(url: string, opts: FetchOptions = {}): Promise<T> {
-  const r = await httpFetch(url, { ...opts, headers: { Accept: 'application/json', ...opts.headers } });
+  const r = await httpFetch(url, { retries: 2, ...opts, headers: { Accept: 'application/json', ...opts.headers } });
   if (r.status === 404) throw new FetchError('Not found', 404);
   if (r.status >= 400) throw new FetchError(`HTTP ${r.status} from ${new URL(url).hostname}`, r.status);
   try {

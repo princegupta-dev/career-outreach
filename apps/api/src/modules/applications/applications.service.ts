@@ -3,6 +3,7 @@ import type { ApplicationStatus, Prisma } from '@prisma/client';
 import { AuditService } from '../../common/audit.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { PrismaService } from '../../common/prisma.service';
+import { ACTION_TARGET, ActionContext, lifecycleOf, LifecycleAction } from '../../domain/applications/lifecycle';
 import { assertTransition, canSystemAdvance, nextActionFor, PIPELINE_ORDER, shouldAutoAdvance } from '../../domain/applications/state-machine';
 
 type Tx = Prisma.TransactionClient | PrismaService;
@@ -61,6 +62,32 @@ export class ApplicationsService {
     return true;
   }
 
+  /** Statuses the preparation workflow may move an application between (never past the user's own decisions). */
+  private static readonly WORKFLOW_OWNED: ApplicationStatus[] = ['DISCOVERED', 'QUALIFIED', 'SHORTLISTED', 'CONTACT_FOUND', 'RESUME_READY', 'EMAIL_READY', 'PREPARING', 'READY_FOR_REVIEW'];
+
+  /** Preparing ⇄ Ready for review. A no-op once the user has skipped, approved, or applied. */
+  async moveForWorkflow(applicationId: string, target: 'PREPARING' | 'READY_FOR_REVIEW'): Promise<boolean> {
+    const r = await this.prisma.application.updateMany({
+      where: { id: applicationId, status: { in: ApplicationsService.WORKFLOW_OWNED, not: target } },
+      data: { status: target, statusChangedAt: new Date() },
+    });
+    return r.count > 0;
+  }
+
+  /** Approval of the prepared package (called only after the user's explicit approval). */
+  async approvePackage(applicationId: string): Promise<boolean> {
+    const r = await this.prisma.application.updateMany({
+      where: { id: applicationId, status: { in: ['READY_FOR_REVIEW', 'EMAIL_READY', 'PREPARING'] } },
+      data: { status: 'APPROVED', statusChangedAt: new Date() },
+    });
+    return r.count > 0;
+  }
+
+  /** The user's explicit lifecycle choices: shortlist, skip, restore, archive, "I applied". Validated by the state machine. */
+  async lifecycleAction(userId: string, applicationId: string, action: LifecycleAction) {
+    return this.transition(userId, applicationId, ACTION_TARGET[action]);
+  }
+
   async pipelineCounts(userId: string): Promise<Record<ApplicationStatus, number>> {
     const rows = await this.prisma.application.groupBy({ by: ['status'], where: { userId, deletedAt: null }, _count: true });
     const counts = Object.fromEntries(PIPELINE_ORDER.map((s) => [s, 0])) as Record<ApplicationStatus, number>;
@@ -70,5 +97,10 @@ export class ApplicationsService {
 
   nextAction(status: ApplicationStatus): string {
     return nextActionFor(status);
+  }
+
+  /** Stage, one next action, and whether it needs the user — for the job page and list. */
+  lifecycle(status: ApplicationStatus, ctx: ActionContext = {}) {
+    return lifecycleOf(status, ctx);
   }
 }

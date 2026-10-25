@@ -44,6 +44,9 @@ export interface ResumeJobData extends BaseJobData {
 export interface EmailGenJobData extends BaseJobData {
   applicationId: string;
 }
+export interface PrepareJobData extends BaseJobData {
+  workflowId: string;
+}
 export interface SendJobData extends BaseJobData {
   outreachId: string;
 }
@@ -103,6 +106,22 @@ export class QueueService {
 
   async generateEmail(d: EmailGenJobData): Promise<void> {
     await this.emailGeneration.add('generate', this.data(d), { ...DEFAULT_JOB_OPTIONS, attempts: 3 });
+  }
+
+  /**
+   * One preparation job per workflow (it rides the existing job-processing queue). A second click finds the
+   * waiting or active job and does nothing; a finished job is replaced so the workflow can run again.
+   */
+  async prepareApplication(d: PrepareJobData): Promise<boolean> {
+    const jobId = `prepare-${d.workflowId}`;
+    const existing = await this.jobProcessing.getJob(jobId);
+    if (existing) {
+      const state = await existing.getState();
+      if (state !== 'completed' && state !== 'failed') return false;
+      await existing.remove().catch(() => undefined);
+    }
+    await this.jobProcessing.add('prepare', this.data(d), { ...DEFAULT_JOB_OPTIONS, jobId, attempts: 1 });
+    return true;
   }
 
   /** One send job per outreach row: duplicate enqueues are ignored by BullMQ. */

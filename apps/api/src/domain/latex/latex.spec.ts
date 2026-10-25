@@ -3,7 +3,7 @@ import * as path from 'path';
 import { BACKEND_JD } from '../__fixtures__/fixtures';
 import { jobSkillWeights } from '../resume/tailor';
 import { extractJob } from '../skills/extract';
-import { detectEngine, latexEscape, latexOutline, latexToText, maskComments, parseLatex, validateLatexUpload } from './latex';
+import { latexEscape, latexOutline, latexToText, maskComments, parseLatex, validateLatexUpload } from './latex';
 import { lineDiff, tailorLatex } from './tailor-latex';
 
 const SOURCE = fs.readFileSync(path.resolve(__dirname, '../__fixtures__/resume.tex'), 'utf8');
@@ -50,12 +50,6 @@ describe('LaTeX parsing', () => {
   it('converts LaTeX to plain text and escapes safely', () => {
     expect(latexToText('Cut costs by 50\\% with \\textbf{Redis} \\href{https://x.y}{here}')).toBe('Cut costs by 50% with Redis here');
     expect(latexEscape('C# & 50% of_users {x}')).toBe('C\\# \\& 50\\% of\\_users \\{x\\}');
-  });
-
-  it('detects the TeX engine', () => {
-    expect(detectEngine(SOURCE)).toBe('pdflatex');
-    expect(detectEngine('\\documentclass{article}\\usepackage{fontspec}')).toBe('xelatex');
-    expect(detectEngine('% !TEX program = lualatex\n\\documentclass{article}')).toBe('lualatex');
   });
 
   it('rejects unsafe or invalid uploads', () => {

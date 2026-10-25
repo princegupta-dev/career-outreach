@@ -46,7 +46,16 @@ describe('Autonomous discovery (integration, mocked internet)', () => {
     const remotive = await prisma.jobSource.findFirstOrThrow({ where: { userId, provider: 'REMOTIVE' } });
     expect(remotive.lastError).toMatch(/HTTPS inspection/);
     const hn = await prisma.jobSource.findFirstOrThrow({ where: { userId, provider: 'HN_HIRING' } });
-    expect(hn.lastStats).toMatchObject({ fetched: 3, afterBasicFilters: 1, created: 1 });
+    expect(hn.lastStats).toMatchObject({ fetched: 3, afterBasicFilters: 1, created: 1, rejected: { 'region:remote-not-india-compatible': 1, 'title:excluded': 1 } });
+
+    // The run-level funnel explains every drop, and nothing was lost silently.
+    expect(run.rejected).toEqual({
+      'title:excluded': 1, // HN: Glow Studio "Senior Frontend Engineer"
+      'title:not-engineering': 1, // Greenhouse: "Product Designer"
+      'region:remote-not-india-compatible': 1, // HN: Northwind (US only)
+      'region:onsite-outside-targets': 1, // Greenhouse: San Francisco
+    });
+    expect(run).toMatchObject({ invalid: 0, failed: 0, warnings: [] });
 
     // The contact published in the HN post was stored, honestly labelled.
     const contact = await prisma.contact.findFirstOrThrow({ where: { emailNormalized: 'cto@paylane.dev' } });

@@ -21,18 +21,16 @@ COPY apps/web/package.json apps/web/
 RUN npm ci -w apps/api --omit=dev && mkdir -p apps/api/node_modules && npm cache clean --force
 
 FROM base AS runtime
-# TeX Live: compiles YOUR LaTeX resume exactly as designed (pdflatex/xelatex/lualatex).
-# texlive-fonts-extra is large (~1 GB) but covers fontawesome & friends used by many resume templates;
-# build with --build-arg TEX_FONTS_EXTRA=false for a smaller image.
-ARG TEX_FONTS_EXTRA=true
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      texlive-latex-base texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended \
-      texlive-xetex texlive-luatex texlive-pictures lmodern fontconfig \
-      $( [ "$TEX_FONTS_EXTRA" = "true" ] && echo texlive-fonts-extra ) \
-    && rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/*
 ENV NODE_ENV=production
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=prod-deps /app/apps/api/node_modules ./apps/api/node_modules
+# Headless Chromium draws the resume PDFs from the HTML template (no TeX needed). Installed as root with its system
+# libraries and fonts (fonts-liberation matches Times New Roman metrics, so page layout is the same as on a Mac).
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN apt-get update && apt-get install -y --no-install-recommends fonts-liberation fontconfig \
+    && node node_modules/playwright/cli.js install --with-deps chromium \
+    && chmod -R a+rX /ms-playwright \
+    && rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/*
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY apps/api/prisma ./apps/api/prisma

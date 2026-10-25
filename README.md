@@ -1,10 +1,10 @@
 # Career Outreach Agent
 
-**A self-hosted job-search assistant that finds relevant jobs every morning, tailors your own LaTeX
-resume for each one, and drafts an honest cold email in Gmail — you just review and hit send.**
+**A self-hosted job-search assistant that finds relevant jobs every morning, tailors your resume for
+each one, and drafts an honest cold email in Gmail — you just review and hit send.**
 
 It runs entirely on your machine with Docker. It works with **no API keys at all** (sandbox email +
-deterministic writer), and gets better if you add Gmail and Claude.
+deterministic writer), and gets better if you add Gmail and an AI model (free local Ollama, or Claude).
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
@@ -13,26 +13,25 @@ deterministic writer), and gets better if you add Gmail and Claude.
 Every day, automatically:
 
 1. **Finds jobs** from public feeds and company career boards — Hacker News "Who is hiring", We Work
-   Remotely, Remotive, Himalayas, Jobicy, Remote OK, Arbeitnow, and ~40 company boards (Greenhouse,
+   Remotely, Remotive, Himalayas, Jobicy, Remote OK, Arbeitnow, and company boards (Greenhouse,
    Ashby, Lever). Thousands of postings are filtered down to the few that fit you.
 2. **Scores each job** against your profile with a transparent 100-point score (skills, seniority,
    role, location, …). No LLM needed; AI is only used for the strongest matches, if enabled.
 3. **Finds a real contact** — only published addresses (in the posting, on the company site, or via
    Hunter.io). Emails are never guessed.
-4. **Tailors your resume** — re-orders bullets and skills in *your own* `.tex` file to put the most
-   relevant things first, then compiles it to PDF. Your design is never changed, and nothing is
-   invented.
+4. **Tailors your resume** — re-orders the bullets and skills from your `resume.tex` so the most
+   relevant things come first, then builds a clean, ATS-friendly PDF. Nothing is invented.
 5. **Writes a short cold email** grounded only in facts from your profile, and puts it in **Gmail
    Drafts with the PDF attached**.
 6. **You approve → it sends → it tracks replies.** If nobody answers, it prepares follow-ups on day
    4, 9 and 16. The moment someone replies, all follow-ups stop.
 
 ```
-Your profile + LaTeX resume
+Your profile + resume.tex
    ↓  daily, automatic
-Find jobs → filter (title, region, age) → dedupe → score → (optional) AI analysis for strong matches
+Find jobs → filter (role, region, age) → dedupe → score → (optional) AI analysis for strong matches
    ↓
-Contact → tailored .tex → PDF → cold email → Gmail draft
+"Prepare my application": check job → research company → contact → tailored PDF → email draft
    ↓
 You approve → send → no reply: follow-ups (day 4, 9, 16) | reply: follow-ups cancelled
 ```
@@ -47,7 +46,7 @@ title that is not in your profile. Banned phrases ("I hope this email finds you 
 | --- | --- |
 | ![Jobs](docs/screenshots/jobs.png) | ![Job detail](docs/screenshots/job-detail.png) |
 
-| Outreach pipeline | Resume (LaTeX template) |
+| Outreach pipeline | Resume |
 | --- | --- |
 | ![Outreach](docs/screenshots/outreach.png) | ![Resume](docs/screenshots/resume.png) |
 
@@ -55,14 +54,14 @@ title that is not in your profile. Banned phrases ("I hope this email finds you 
 
 This tool is for writing **a few thoughtful emails a day**, not mass mailing. Daily send limits,
 per-company and per-recipient cooldowns, a suppression list (bounces and "please stop" replies) and
-a send window are on by default — please keep them that way. Every first email needs your approval.
+a send window are on by default — please keep them that way. Nothing is sent before you approve it.
 
 ## Who it's for
 
 Out of the box it is tuned for **software engineers** (the default search, skill taxonomy and title
-filters are engineering-focused). Within that, you control it through your profile: target roles,
-locations, skills. Frontend, backend, full-stack, platform, staff — any role you list in
-`target_roles` is searched for.
+filters are engineering-focused, and locations open to India are preferred). Within that, you control
+it through your profile: target roles, locations, skills. Any role you list in `target_roles` is
+searched for — including titles the defaults would skip, such as "Frontend Engineer".
 
 ---
 
@@ -71,7 +70,7 @@ locations, skills. Frontend, backend, full-stack, platform, staff — any role y
 ### 1. Requirements
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine + Compose v2)
-- ~5 GB free disk (the API image includes TeX Live to compile LaTeX)
+- A few GB of free disk (the API image includes headless Chromium for resume PDFs)
 - Git
 
 That's it for the Docker setup — no Node, Postgres or LaTeX on your machine.
@@ -100,7 +99,7 @@ openssl rand -hex 32   # → ENCRYPTION_KEY
 The `candidate/` folder holds **the author's** profile and resume as an example. Replace them:
 
 - `candidate/candidate-profile.md` — your roles, locations and skills (**required**)
-- `candidate/resume.tex` — your LaTeX resume (optional; delete it to use a built-in PDF layout)
+- `candidate/resume.tex` — your resume content (optional; delete it to build the resume from your profile)
 
 See [candidate/README.md](candidate/README.md) for what each field does.
 
@@ -110,34 +109,33 @@ See [candidate/README.md](candidate/README.md) for what each field does.
 docker compose up --build
 ```
 
-The first build takes 5–15 minutes (mostly TeX Live). For a smaller image, if your resume doesn't
-need extra fonts:
-
-```bash
-docker compose build --build-arg TEX_FONTS_EXTRA=false && docker compose up
-```
-
-When you see the web container is ready, open **http://localhost:3000** and **create your
-account** (only the first account can register — this is a single-user app).
+The first build takes several minutes. When the web container is ready, open
+**http://localhost:3000** and **create your account** (only the first account can register — this
+is a single-user app).
 
 The first job search starts right away. Within a couple of minutes the dashboard shows
 *"We found X relevant jobs for you today."*
 
 ### 5. Daily use
 
-Open the dashboard → pick a job → check the match, contact, tailored PDF and email → **Approve &
-send** (or send the draft from Gmail directly — the app notices and starts tracking it).
+Open the dashboard → pick a job → click **Prepare my application**. It checks the job, researches
+the company, finds a contact, tailors your resume and drafts the email, then waits for you.
+Review it and **approve** (or send the draft from Gmail directly — the app notices and starts
+tracking it). Details are under [Preparing an application](#preparing-an-application).
 
 ### 6. Optional upgrades
 
 | Want | Do this |
 | --- | --- |
 | Real emails via Gmail | Follow [Gmail setup](#gmail) below, then `EMAIL_PROVIDER=gmail` |
-| Better analysis & writing with Claude | `AI_PROVIDER=anthropic` and `ANTHROPIC_API_KEY=...` ([get a key](https://console.anthropic.com)) |
+| Free local AI | Install [Ollama](https://ollama.com), `ollama pull qwen2.5:7b`, then `AI_PROVIDER=ollama` and `OLLAMA_MODEL=qwen2.5:7b` (see [AI and cost](#ai-and-cost)) |
+| Best analysis & writing with Claude | `AI_PROVIDER=anthropic` and `ANTHROPIC_API_KEY=...` ([get a key](https://console.anthropic.com)) |
 | More contacts found | `HUNTER_API_KEY=...` ([Hunter.io](https://hunter.io), free tier) |
+| A4 resumes | `RESUME_PAGE_SIZE=A4` |
 | Different search time | `DISCOVERY_CRON` (default `30 1 * * *` = 07:00 IST; container time is UTC) |
 
 After editing `.env`, restart: `docker compose up -d --force-recreate api worker`.
+Check the AI connection in **Settings → Test AI connection**.
 
 ### Useful commands
 
@@ -156,18 +154,48 @@ Ports (localhost only): web `3000`, API `4000`, Postgres `5433`, Redis `6380`.
   of the `ports:` mappings in `docker-compose.yml`.
 - **"Blocked by your network"** on some sources — a firewall/antivirus is intercepting HTTPS. See
   the network note under [Job discovery](#job-discovery).
-- **Resume doesn't compile** — the Resume page shows the TeX log. Upload any missing
-  `.cls`/`.sty`/font files there too.
+- **Resume step failed** — the job page shows the reason and a **Retry** button. Outside Docker,
+  run `npx playwright install chromium` first.
+- **`.tex` upload rejected** — the reader explains what it couldn't parse; see
+  [Your resume](#your-resume) for the supported commands.
 - **Gmail says "Access blocked"** — add your Gmail address under *Test users* (step 2 of
   [Gmail](#gmail)).
 - **Profile errors** — open the Profile page; it shows exactly which field is invalid.
 
 ---
 
+## Preparing an application
+
+Open a job: the top of the page says whether to apply (Strong match / Good match / Review manually / Not
+recommended), shows salary, experience, location eligibility and company size (anything unknown says
+"Unknown"), and has one main button: **Prepare my application**. Score breakdowns, contacts, the resume
+and the email editor are under **More details and tools**.
+
+*Prepare* runs five steps in the worker (so the worker must be running) and saves progress, so a refresh
+loses nothing: check the job → research the company → find a contact → tailor the resume → draft the
+outreach. Each step shows *Not started / In progress / Completed / Needs your input / Failed — retry
+available*; a retry redoes only what failed. At the end you get one summary and one **approve** button.
+
+- Nothing is sent or submitted before you approve. Approving an email queues it (existing limits and
+  safeguards apply); with no contact email you get an application checklist, and approving only records it.
+- A posting is "listed" only when its company board confirms it; otherwise it says *could not be verified*.
+- Emails are never guessed. A found-but-unverified address waits for your confirmation.
+- Resume PDFs need a browser engine (`npx playwright install chromium`; included in Docker). If it is
+  missing the resume step fails with that instruction; install it and retry, or **Continue without a tailored resume**.
+- Lifecycle: Discovered → Shortlisted → Preparing → Ready for review → Approved → Applied → Replied →
+  Interview → Offer/Rejected, plus Skipped and Archived. *Applied* means an email was actually sent, or you
+  clicked **I applied** after applying on the company's site.
+
 ## Local development (without Docker for the apps)
 
-Node 20.12+ (22 recommended), PostgreSQL 14+, Redis 6+, and TeX Live/MacTeX if you want PDF
-compilation locally (`brew install --cask mactex-no-gui`).
+Node 20.12+ (22 recommended), PostgreSQL 14+, Redis 6+, and a browser for resume PDFs. Install it once:
+
+```bash
+npx playwright install chromium     # ~170 MB, stored outside the repo
+```
+
+If you skip this, the app falls back to an installed Google Chrome or Microsoft Edge, or to the binary in
+`RESUME_BROWSER_PATH`. If none can be started, the resume step says so and shows this command.
 
 ```bash
 npm install
@@ -183,7 +211,7 @@ Or run only infrastructure in Docker: `docker compose up -d postgres redis` and 
 `postgresql://jobhunter:jobhunter@localhost:5433/job_hunter` and `redis://localhost:6380/0`.
 
 Stack: Next.js (web) → NestJS monolith (API + BullMQ worker) → PostgreSQL (source of truth) +
-Redis (cache, locks, rate limits, queues) → TeX Live. No microservices.
+Redis (cache, locks, rate limits, queues) → headless Chromium (resume PDFs). No microservices.
 
 ## Job discovery
 
@@ -216,29 +244,35 @@ worker start, on sign-up, and on **Find jobs now**.
 > Remotive, Himalayas, Jobicy, Remote OK, Arbeitnow and Lever; HN, We Work Remotely, Greenhouse and
 > Ashby worked. Run it on a home network to use every source. Certificate checks are never disabled.
 
-## Your LaTeX resume
+## Your resume
 
-- `candidate/resume.tex` (next to the profile) becomes the template automatically the first time the
-  resume is used — no upload needed. Uploading a `.tex` on the Resume page replaces it; after
+- `candidate/resume.tex` (next to the profile) is your resume's **content** and is picked up automatically
+  the first time the resume is used. Uploading a `.tex` on the Resume page replaces it; after
   *Remove LaTeX* the file is not re-imported.
-- Or upload the `.tex` (and any `.cls/.sty/.bib/fonts/images`) on the Resume page. Engine is detected
-  (`% !TEX program = xelatex`, `fontspec` → XeLaTeX; otherwise pdfLaTeX).
-- **Tailoring never redesigns.** The parser works on the document body only (preamble and comments
-  untouched) and makes three kinds of change:
+- **The PDF is drawn from a built-in template, not by running LaTeX.** The template is one clean,
+  ATS-friendly column (real selectable text; no icons, images, tables or skill bars) that mirrors the
+  usual layout: centered name and contact line, Summary, Technical Skills, Experience, Production
+  Challenges, Projects, Education. Letter size by default; set `RESUME_PAGE_SIZE=A4` for A4. Your own
+  LaTeX *design* (fonts, margins, packages) is not reproduced — only the content, in order.
+- The `.tex` reader understands `\section`, `\subheading`/`\resumeSubheading`, `\project`,
+  `\itemx`/`\resumeItem`, `\item`, `\textbf`, `\textit`/`\emph`, `\texttt`, `\href` and the usual escapes. A
+  file it cannot read is rejected at upload with an explanation instead of producing a thin resume.
+- **Tailoring is unchanged and factual.** It works on the `.tex` source and makes three kinds of change:
   1. re-orders bullets inside each Experience/Projects/Production Challenges list (most JD-relevant
-     first) — `\item` and custom item macros such as `\itemx{…}` / `\resumeItem{…}`,
+     first),
   2. re-orders items inside comma-separated skills lines ("Languages: …"); groups in parentheses
-     ("AWS (EC2, S3)") stay together and a trailing "; …" clause stays at the end,
-  3. with Claude enabled: rephrases *plain-text* bullets toward the JD's wording — each rewrite must
-     pass a truth guard (no new technologies, numbers, metrics or "led/owned/architected"), and
-     bullets containing LaTeX formatting are never touched.
-  Nothing is added or removed; the tailored file has the same length as the original.
-- The job page shows the exact `.tex` diff, a **Download PDF** button and the `.tex`.
-- Compilation runs without shell-escape, with TeX file access restricted to a throw-away directory,
-  a 60 s timeout and limited concurrency. If a tailored file doesn't compile, the app refuses to
-  substitute a different design.
+     ("AWS (EC2, S3)") stay together,
+  3. with Claude enabled (optional): rephrases *plain-text* bullets toward the JD's wording — each rewrite
+     must pass a truth guard (no new technologies, numbers, metrics or "led/owned/architected").
+  Nothing is added or removed, and your master resume is never modified by tailoring.
+- **Every PDF is checked before it is accepted:** it must be a real PDF with selectable text, contain your
+  name, every section and every bullet (so nothing is clipped or dropped), have nothing wider than the
+  page, and be at most 4 pages (it aims for 2 and tries a tighter layout once if needed). If the check
+  fails, the page shows the reason and a **Retry** button; the app never substitutes a different resume.
+- The job page shows the changes, a **Preview** link and a **Download PDF** button.
+- Isolation: the browser renders the document with scripts and network access blocked.
 
-Without a LaTeX upload, a clean built-in PDF layout is generated from the structured resume.
+Without a `.tex`, the same template is used with the structured resume built from your profile.
 
 ## Gmail
 
@@ -287,6 +321,12 @@ recruiter first at large companies).
 
 ## AI and cost
 
+**Free local AI with Ollama:** install Ollama (https://ollama.com), run `ollama pull qwen2.5:3b`, set
+`AI_PROVIDER=ollama` (and optionally `OLLAMA_MODEL`, `OLLAMA_BASE_URL`) in `.env`, restart the API and worker,
+then run `npm run ai:check` or click "Test AI connection" in Settings. Nothing leaves your machine. If Ollama is
+off or the model is missing, the app falls back to the template writer. Pick a model that fits your RAM (3B for
+8 GB, 7–8B for 16 GB+).
+
 Works fully without an LLM (`AI_PROVIDER=template`): scoring, tailoring and emails are
 deterministic and grounded in the profile. With `AI_PROVIDER=anthropic` (`ANTHROPIC_API_KEY`,
 default model `claude-opus-5-5`; `claude-sonnet-5-5` is cheaper) Claude is used only for:
@@ -309,7 +349,7 @@ sent, and sent emails get *Simulate reply / out-of-office / bounce* buttons.
 ## Database
 
 PostgreSQL schema in `apps/api/prisma/schema.prisma`: users, profiles, resumes (incl. LaTeX source
-and compiled PDF), resume_versions (tailored .tex + PDF), companies, jobs, contacts, applications,
+and PDF), resume_versions (tailored .tex + PDF), companies, jobs, contacts, applications,
 outreach (incl. Gmail draft ids), followups, interviews, discovery_runs, email_accounts,
 email_events, ai_generations, job_sources, audit_logs, suppressions.
 `npm run db:deploy` applies migrations (Docker does it on start); `npm run db:migrate -- --name x`
@@ -330,14 +370,14 @@ limiting, state machine, Gmail REST + OAuth + token encryption, BullMQ dedupe/de
 discovery → auto-prepare → Gmail drafts, and the acceptance flow
 "We found X jobs today → job → match → contact → tailored PDF → email → approve → send (draft) →
 follow-up → reply → follow-ups + their drafts cancelled → interview", plus "draft sent from Gmail
-is detected". LaTeX *compilation* is exercised in tests only where a TeX engine is installed (the
-Docker image); elsewhere the tests assert that the app refuses to fall back to another design.
+is detected". The PDF tests drive a real headless browser; on a machine without one they are skipped, and
+the e2e tests instead assert the clear "install Chromium" message.
 
 ## Security
 
 OAuth with encrypted tokens; HttpOnly SameSite session cookie; double-submit CSRF; OAuth state bound
 to the user; Redis rate limiting; Zod validation; private-network URL blocking; robots.txt respected;
-LaTeX compiled without shell-escape in a sandboxed directory; audit log; structured JSON logs with
+resume PDFs rendered with scripts and network blocked; audit log; structured JSON logs with
 correlation ids (tokens, cookies, passwords and email bodies redacted).
 
 ## Project layout
@@ -347,7 +387,7 @@ candidate/candidate-profile.md   Canonical candidate profile
 apps/api/src/domain/             Pure logic: scoring, extraction, filters, LaTeX parse/tailor,
                                  truth guard, guardrails, follow-up schedule, state machine
 apps/api/src/providers/          Job feeds & boards, contacts, Gmail/sandbox, Claude/template AI,
-                                 LaTeX compiler, PDF renderer, resume parser
+                                 HTML resume template + Chromium PDF renderer, resume parser
 apps/api/src/modules/            Services/controllers, discovery orchestrator, BullMQ processors
 apps/api/test/                   Integration + e2e tests (mocked internet)
 apps/web/                        Next.js UI

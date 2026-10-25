@@ -5,8 +5,9 @@ import { MetricsService } from '../../common/metrics.service';
 import { PrismaService } from '../../common/prisma.service';
 import { RedisService } from '../../common/redis.service';
 import { ENV, Env } from '../../config/env';
-import { AIProvider, AiResult } from '../../providers/ai/ai-provider.interface';
+import { AIProvider, AiHealth, AiResult } from '../../providers/ai/ai-provider.interface';
 import { AiProviderError, AnthropicProvider } from '../../providers/ai/anthropic.provider';
+import { OllamaProvider } from '../../providers/ai/ollama.provider';
 import { TemplateProvider } from '../../providers/ai/template.provider';
 
 const CIRCUIT_KEY = 'ai:circuit';
@@ -45,7 +46,9 @@ export class AiService {
     this.primary =
       env.AI_PROVIDER === 'anthropic'
         ? new AnthropicProvider({ apiKey: env.ANTHROPIC_API_KEY || undefined, model: env.ANTHROPIC_MODEL, effort: env.ANTHROPIC_EFFORT })
-        : this.template;
+        : env.AI_PROVIDER === 'ollama'
+          ? new OllamaProvider({ baseUrl: env.OLLAMA_BASE_URL, model: env.OLLAMA_MODEL, numCtx: env.OLLAMA_NUM_CTX, timeoutMs: env.OLLAMA_TIMEOUT_MS })
+          : this.template;
   }
 
   get usesLlm(): boolean {
@@ -53,7 +56,13 @@ export class AiService {
   }
 
   status(): { provider: string; model: string | null; llm: boolean } {
-    return { provider: this.primary.name, model: this.primary.isLlm ? this.env.ANTHROPIC_MODEL : null, llm: this.primary.isLlm };
+    return { provider: this.primary.name, model: this.primary.model, llm: this.primary.isLlm };
+  }
+
+  /** Is the configured provider usable right now? Never throws. */
+  async check(): Promise<AiHealth> {
+    if (this.primary.health) return this.primary.health();
+    return { ok: true, provider: this.primary.name, model: this.primary.model, detail: this.primary.isLlm ? 'Provider configured.' : 'Using the built-in template writer (no AI model).' };
   }
 
   /** Why LLM calls are paused (billing/auth errors), if they are. */
@@ -76,7 +85,7 @@ export class AiService {
     opts: { force?: boolean; allowFallback?: boolean } = {},
   ): Promise<AiRunResult<T>> {
     const provider = this.primary;
-    const inputHash = hashObject({ kind, provider: provider.name, model: provider.isLlm ? this.env.ANTHROPIC_MODEL : 'template', input: cacheInput });
+    const inputHash = hashObject({ kind, provider: provider.name, model: provider.model ?? 'template', input: cacheInput });
 
     if (!opts.force) {
       const cached = await this.prisma.aiGeneration.findFirst({
@@ -129,7 +138,7 @@ export class AiService {
         const latencyMs = Date.now() - started;
         const message = err instanceof AiProviderError ? err.message : `AI call failed: ${(err as Error).message}`;
         await this.prisma.aiGeneration.create({
-          data: { userId, kind, inputHash, provider: provider.name, model: this.env.ANTHROPIC_MODEL, status: 'FAILED', error: message.slice(0, 500), latencyMs },
+          data: { userId, kind, inputHash, provider: provider.name, model: provider.model ?? 'template', status: 'FAILED', error: message.slice(0, 500), latencyMs },
         });
         await this.metrics.record('ai.failure', { kind, latencyMs, error: message });
         if (provider.isLlm && err instanceof AiProviderError && !err.retryable && FATAL.test(message)) await this.openCircuit(message.slice(0, 300));

@@ -1,9 +1,11 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { CompanySize, Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
+import { sizeFromTeam } from '../../domain/company-size';
 import { normalizeCompanyName } from '../../domain/dedupe';
 import { httpFetch, isAllowedByRobots } from '../../providers/http';
 import { extractCompanyMeta } from '../../providers/jobs/html-extract';
+import type { CompanyMeta } from '../../providers/jobs/job-provider.interface';
 
 export interface CompanyFact {
   text: string;
@@ -29,18 +31,42 @@ export class CompaniesService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async findOrCreate(userId: string, name: string, extra: { website?: string | null; domain?: string | null; location?: string | null } = {}) {
+  async findOrCreate(userId: string, name: string, extra: { website?: string | null; domain?: string | null; location?: string | null; meta?: CompanyMeta | null } = {}) {
     const normalizedName = normalizeCompanyName(name) || name.toLowerCase();
     const domain = domainFrom(extra.domain ?? extra.website);
+    const meta = extra.meta ?? null;
+    const metaData = {
+      teamSize: meta?.teamSize ?? null,
+      category: meta?.category ?? null,
+      careerUrl: meta?.careerUrl ?? null,
+      provenance: (meta?.provenance ?? undefined) as Prisma.InputJsonValue | undefined,
+    };
     const existing = await this.prisma.company.findUnique({ where: { userId_normalizedName: { userId, normalizedName } } });
     if (existing) {
-      if ((!existing.domain && domain) || existing.deletedAt) {
-        return this.prisma.company.update({ where: { id: existing.id }, data: { domain: existing.domain ?? domain, website: existing.website ?? extra.website ?? null, deletedAt: null } });
+      // Fill gaps only; never overwrite what the user or an earlier source already established.
+      const fill: Prisma.CompanyUpdateInput = {};
+      if (!existing.domain && domain) Object.assign(fill, { domain, website: existing.website ?? extra.website ?? null });
+      if (existing.deletedAt) fill.deletedAt = null;
+      if (existing.teamSize == null && metaData.teamSize) {
+        fill.teamSize = metaData.teamSize;
+        if (existing.size === 'UNKNOWN') fill.size = sizeFromTeam(metaData.teamSize);
       }
-      return existing;
+      if (!existing.category && metaData.category) fill.category = metaData.category;
+      if (!existing.careerUrl && metaData.careerUrl) fill.careerUrl = metaData.careerUrl;
+      if (!existing.provenance && metaData.provenance) fill.provenance = metaData.provenance;
+      return Object.keys(fill).length ? this.prisma.company.update({ where: { id: existing.id }, data: fill }) : existing;
     }
     return this.prisma.company.create({
-      data: { userId, name: name.trim(), normalizedName, domain, website: extra.website ?? (domain ? `https://${domain}` : null), location: extra.location ?? null },
+      data: {
+        userId,
+        name: name.trim(),
+        normalizedName,
+        domain,
+        website: extra.website ?? (domain ? `https://${domain}` : null),
+        location: extra.location ?? null,
+        size: sizeFromTeam(metaData.teamSize),
+        ...metaData,
+      },
     });
   }
 

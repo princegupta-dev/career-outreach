@@ -58,3 +58,14 @@ Nice to have:
 
 Fully remote. Compensation: ₹35-45 LPA.
 Contact: Sarah Lee (Engineering Manager) - sarah.lee@acmepay.io`;
+
+/** Can this machine start a browser (Playwright Chromium, Chrome or Edge) to build resume PDFs? Tests adapt to the answer. */
+export async function pdfBrowserAvailable(): Promise<boolean> {
+  const { ChromiumPdfRenderer } = await import('../../src/providers/documents/chromium-pdf');
+  const r = new ChromiumPdfRenderer({ pageSize: 'Letter', timeoutMs: 30000 });
+  try {
+    return await r.available();
+  } finally {
+    await r.close();
+  }
+}

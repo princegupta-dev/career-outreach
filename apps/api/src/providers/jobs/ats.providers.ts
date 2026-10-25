@@ -1,11 +1,18 @@
 import type { JobProviderKind } from '@prisma/client';
 import { fetchJson, FetchError } from '../http';
 import { htmlToText } from './html-extract';
-import { filterListed, JobProvider, JobProviderError, JobSearchCriteria, ProviderJob } from './job-provider.interface';
+import { filterListed, JobProvider, JobProviderError, JobSearchCriteria, parseDate, ProviderJob, warn } from './job-provider.interface';
 
 function decodeEntities(s: string): string {
   return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
 }
+
+/**
+ * A company board lists only the roles that are open today, so how long ago a role was first
+ * published says nothing about whether it is still open. Age stays visible as a flag
+ * (`age:older-than-Nd`) for ranking instead of dropping evergreen roles.
+ */
+const openRoles = (c: JobSearchCriteria): JobSearchCriteria => ({ ...c, postedWithinDays: undefined });
 
 function boardToken(config: Record<string, unknown>): string {
   const t = String(config.boardToken ?? config.company ?? '').trim();
@@ -28,6 +35,7 @@ interface GhJob {
 
 export class GreenhouseProvider implements JobProvider {
   readonly kind: JobProviderKind = 'GREENHOUSE';
+  private static readonly MAX_DETAILS = 80;
   private static URL_RE = /^https?:\/\/(?:boards|job-boards)(?:\.eu)?\.greenhouse\.io\/([^/]+)\/jobs\/(\d+)/i;
 
   supportsUrl(url: string): boolean {
@@ -55,7 +63,7 @@ export class GreenhouseProvider implements JobProvider {
       location: loc,
       remote: loc ? /remote/i.test(loc) : null,
       description: htmlToText(html),
-      postedAt: j.first_published ? new Date(j.first_published) : j.updated_at ? new Date(j.updated_at) : null,
+      postedAt: parseDate(j.first_published) ?? parseDate(j.updated_at),
     };
   }
 
@@ -69,8 +77,13 @@ export class GreenhouseProvider implements JobProvider {
       fetchJson<{ jobs: GhJob[] }>(`https://boards-api.greenhouse.io/v1/boards/${token}/jobs`, { maxBytes: 10_000_000 }),
       this.companyName(token),
     ]);
-    const survivors = filterListed((data.jobs ?? []).map((j) => this.map(j, token, company)), criteria).slice(0, 80);
+    // Newest first, so the cap on detail requests drops the oldest postings rather than whatever the API listed last.
+    const newestFirst = (a: ProviderJob, b: ProviderJob) => (b.postedAt?.getTime() ?? 0) - (a.postedAt?.getTime() ?? 0);
+    const passed = filterListed((data.jobs ?? []).map((j) => this.map(j, token, company)), openRoles(criteria)).sort(newestFirst);
+    const survivors = passed.slice(0, GreenhouseProvider.MAX_DETAILS);
+    if (passed.length > survivors.length) warn(criteria, `${token}: ${passed.length - survivors.length} matching postings beyond the newest ${GreenhouseProvider.MAX_DETAILS} were not read`);
     const out: ProviderJob[] = [];
+    let failed = 0;
     for (let i = 0; i < survivors.length; i += 6) {
       const batch = await Promise.all(
         survivors.slice(i, i + 6).map(async (j): Promise<ProviderJob | null> => {
@@ -83,8 +96,12 @@ export class GreenhouseProvider implements JobProvider {
           }
         }),
       );
-      out.push(...batch.filter((x): x is ProviderJob => !!x && x.description.length > 0));
+      for (const x of batch) {
+        if (x && x.description.length > 0) out.push(x);
+        else failed++;
+      }
     }
+    if (failed) warn(criteria, `${token}: ${failed} of ${survivors.length} job details failed to load or were empty`);
     return out;
   }
 
@@ -143,7 +160,7 @@ export class LeverProvider implements JobProvider {
       remote: p.workplaceType ? p.workplaceType === 'remote' : null,
       employmentType: p.categories?.commitment ?? null,
       description: sections.filter(Boolean).join('\n\n'),
-      postedAt: p.createdAt ? new Date(p.createdAt) : null,
+      postedAt: parseDate(p.createdAt),
       salaryText: s?.min ? `${s.currency ?? ''} ${s.min} - ${s.max ?? s.min} ${s.interval ?? ''}`.trim() : null,
     };
   }
@@ -152,7 +169,7 @@ export class LeverProvider implements JobProvider {
     const company = boardToken(config);
     const name = String(config.companyName ?? company);
     const postings = await fetchJson<LeverPosting[]>(`https://api.lever.co/v0/postings/${company}?mode=json`, { maxBytes: 15_000_000 });
-    return filterListed(postings.map((p) => ({ ...this.map(p, company), companyName: name })), criteria);
+    return filterListed(postings.map((p) => ({ ...this.map(p, company), companyName: name })), openRoles(criteria));
   }
 
   async getJob(url: string): Promise<ProviderJob | null> {
@@ -203,7 +220,7 @@ export class AshbyProvider implements JobProvider {
       remote: j.isRemote ?? (j.workplaceType ? j.workplaceType === 'Remote' : null),
       employmentType: j.employmentType ?? null,
       description: j.descriptionPlain ?? (j.descriptionHtml ? htmlToText(j.descriptionHtml) : ''),
-      postedAt: j.publishedAt ? new Date(j.publishedAt) : null,
+      postedAt: parseDate(j.publishedAt),
       salaryText: salary,
     };
   }
@@ -216,7 +233,7 @@ export class AshbyProvider implements JobProvider {
   async searchJobs(criteria: JobSearchCriteria, config: Record<string, unknown>): Promise<ProviderJob[]> {
     const board = boardToken(config);
     const name = String(config.companyName ?? board);
-    return filterListed((await this.board(board)).map((j) => this.map(j, board, name)), criteria);
+    return filterListed((await this.board(board)).map((j) => this.map(j, board, name)), openRoles(criteria));
   }
 
   async getJob(url: string): Promise<ProviderJob | null> {

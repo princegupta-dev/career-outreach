@@ -69,11 +69,28 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
   ).map(([provider, boardToken, companyName, domain]) => ({ provider, name: companyName, config: { boardToken, companyName, domain } })),
 ];
 
-/** Title keywords never worth discovering: other stacks/disciplines and levels outside the target (new-grad, junior, staff+, management). */
+/**
+ * HARD title exclusions: the wrong function (sales, design, recruiting, support, management) or a level
+ * that cannot fit a senior engineer (intern, new-grad, junior), or a discipline that is not backend
+ * (frontend, mobile, embedded, QA, game, research), or a non-software engineering field (mechanical,
+ * electrical, civil...). These are categorical, so they reject.
+ */
 export const DEFAULT_EXCLUDE_TITLES = [
-  'frontend', 'front-end', 'front end', 'ios', 'android', 'mobile', 'intern', 'designer', 'sales', 'marketing', 'recruiter',
-  'data scientist', 'qa', 'test engineer', 'in test', 'sdet', 'test automation', 'quality engineer', 'support engineer', 'solutions engineer', 'sales engineer', 'customer engineer',
-  'manager', 'director', 'head of', 'vp', 'vice president', 'principal', 'distinguished', 'staff', 'new grad', 'new-grad', 'newgrad', 'graduate', 'early career', 'early-career', 'junior', 'jr', 'entry level', 'entry-level', 'fresher', 'university', 'campus', 'machine learning', 'ml engineer',
-  'research', 'firmware', 'embedded', 'hardware', 'security engineer', 'data engineer', 'analytics engineer', 'game', 'unity',
-  'salesforce', 'sap', '.net', 'java', 'golang', 'rust', 'c++', 'php', 'ruby', 'scala', 'kotlin', 'swift', 'flutter',
+  'frontend', 'front-end', 'front end', 'ios', 'android', 'mobile', 'intern', 'internship', 'designer', 'sales', 'marketing', 'recruiter',
+  'data scientist', 'qa', 'test engineer', 'in test', 'sdet', 'test automation', 'quality engineer',
+  'support engineer', 'solutions engineer', 'solution architect', 'solutions architect', 'sales engineer', 'customer engineer', 'customer success', 'consultant', 'consulting', 'presales', 'pre-sales', 'developer advocate', 'developer relations', 'devrel', 'technical writer', 'gtm', 'technical account',
+  'manager', 'director', 'head of', 'vp', 'vice president', 'leader',
+  'mechanical', 'electrical', 'electronics', 'electronic', 'civil', 'chemical', 'manufacturing', 'optical', 'aerospace', 'mechatronics', 'thermal', 'structural', 'industrial', 'materials', 'process engineer', 'field engineer', 'validation', 'asic', 'fpga', 'analog', 'pcb',
+  'new grad', 'new-grad', 'newgrad', 'graduate', 'early career', 'early-career', 'junior', 'jr', 'entry level', 'entry-level', 'fresher', 'university', 'campus',
+  'research', 'firmware', 'embedded', 'hardware', 'game', 'unity', 'salesforce', 'sap', 'flutter', 'swift',
 ];
+
+/**
+ * SOFT title signals: kept, but flagged so ranking can weigh them instead of the filter guessing.
+ * Staff/Principal roles are common stretch targets at Indian startups; a stack mismatch is the scorer's call.
+ */
+export const FLAG_TITLES: Record<string, string[]> = {
+  'seniority': ['staff', 'principal', 'distinguished'],
+  'stack': ['java', '.net', 'golang', 'rust', 'c++', 'php', 'ruby', 'scala', 'kotlin'],
+  'adjacent': ['machine learning', 'ml engineer', 'data engineer', 'analytics engineer', 'security engineer', 'forward deployed', 'site reliability', 'sre', 'devops'],
+};

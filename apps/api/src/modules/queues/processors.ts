@@ -10,8 +10,9 @@ import { EmailSyncService } from '../email/email-sync.service';
 import { FollowupRunnerService } from '../followups/followup-runner.service';
 import { JobsService } from '../jobs/jobs.service';
 import { OutreachService, RetryLaterError } from '../outreach/outreach.service';
+import { PreparationService } from '../preparation/preparation.service';
 import { ResumeService } from '../resume/resume.service';
-import { BaseJobData, DiscoveryJobData, EmailGenJobData, ProcessJobData, QUEUES, ResumeJobData, SendJobData } from './queues';
+import { BaseJobData, DiscoveryJobData, EmailGenJobData, PrepareJobData, ProcessJobData, QUEUES, ResumeJobData, SendJobData } from './queues';
 
 /** Shared wrapper: correlation id, structured logs, failure metrics. */
 abstract class BaseProcessor<T extends BaseJobData = BaseJobData> extends WorkerHost {
@@ -44,17 +45,21 @@ abstract class BaseProcessor<T extends BaseJobData = BaseJobData> extends Worker
 }
 
 @Processor(QUEUES.jobProcessing, { concurrency: 4 })
-export class JobProcessingProcessor extends BaseProcessor<ProcessJobData> {
+export class JobProcessingProcessor extends BaseProcessor<ProcessJobData | PrepareJobData> {
   protected readonly logger = new Logger('JobProcessingWorker');
   constructor(
     metrics: MetricsService,
     private readonly jobs: JobsService,
+    private readonly preparation: PreparationService,
   ) {
     super(metrics);
   }
-  protected async handle(job: Job<ProcessJobData>) {
-    const scored = await this.jobs.score(job.data.jobId);
-    if (job.data.analyze) await this.jobs.analyze(job.data.userId, job.data.jobId);
+  protected async handle(job: Job<ProcessJobData | PrepareJobData>) {
+    // "Prepare my application" shares this queue; the workflow persists its own progress and step errors.
+    if (job.name === 'prepare') return this.preparation.execute((job.data as PrepareJobData).workflowId);
+    const data = job.data as ProcessJobData;
+    const scored = await this.jobs.score(data.jobId);
+    if (data.analyze) await this.jobs.analyze(data.userId, data.jobId);
     return scored;
   }
 }

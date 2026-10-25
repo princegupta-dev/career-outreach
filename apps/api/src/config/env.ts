@@ -19,7 +19,11 @@ const schema = z.object({
 
   CANDIDATE_PROFILE_PATH: z.string().default('../../candidate/candidate-profile.md'),
 
-  AI_PROVIDER: z.enum(['anthropic', 'template']).default('template'),
+  AI_PROVIDER: z.enum(['anthropic', 'ollama', 'template']).default('template'),
+  OLLAMA_BASE_URL: z.string().url().default('http://localhost:11434'),
+  OLLAMA_MODEL: z.string().min(1).default('qwen2.5:3b'),
+  OLLAMA_NUM_CTX: z.coerce.number().int().min(1024).default(8192),
+  OLLAMA_TIMEOUT_MS: z.coerce.number().int().min(5000).default(300_000),
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default('claude-opus-5-5'),
   ANTHROPIC_EFFORT: z.enum(['low', 'medium', 'high']).default('medium'),
@@ -32,9 +36,18 @@ const schema = z.object({
 
   HUNTER_API_KEY: z.string().optional(),
 
+  /** Resume PDFs are drawn with headless Chromium. Leave empty to use Playwright's Chromium (or an installed Chrome/Edge). */
+  RESUME_BROWSER_PATH: z.string().optional(),
+  RESUME_PAGE_SIZE: z.enum(['Letter', 'A4']).default('Letter'),
+  RESUME_RENDER_TIMEOUT_MS: z.coerce.number().int().min(5000).max(120000).default(30000),
+
   EMAIL_SYNC_CRON: z.string().default('*/10 * * * *'),
   FOLLOWUP_CRON: z.string().default('*/15 * * * *'),
   DISCOVERY_CRON: z.string().default('30 1 * * *'),
+  /** Find more startups to watch: sync a public startup directory and probe its companies' job boards. */
+  DIRECTORY_ENABLED: z.enum(['true', 'false']).default('true'),
+  /** Companies whose job boards are probed per discovery run (about 3-9 requests each). */
+  DIRECTORY_PROBE_BATCH: z.coerce.number().int().min(0).max(1000).default(200),
   ANALYTICS_CRON: z.string().default('0 * * * *'),
 });
 

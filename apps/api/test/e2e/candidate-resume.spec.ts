@@ -3,8 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import request from 'supertest';
 import { PrismaService } from '../../src/common/prisma.service';
-import { LatexCompiler } from '../../src/providers/documents/latex-compiler';
-import { BACKEND_JD, createHttpApp, flushRedis, resetDatabase } from '../setup/helpers';
+import { BACKEND_JD, createHttpApp, flushRedis, pdfBrowserAvailable, resetDatabase } from '../setup/helpers';
 
 /**
  * candidate/resume.tex (next to the profile) is picked up as the LaTeX template without an upload,
@@ -17,7 +16,7 @@ describe('Candidate LaTeX resume from candidate/resume.tex (e2e)', () => {
   let prisma: PrismaService;
   let agent: ReturnType<typeof request.agent>;
   let csrf: string;
-  let hasTex = false;
+  let hasBrowser = false;
 
   const post = (p: string, body: object = {}) => agent.post(`/api${p}`).set('x-csrf-token', csrf).send(body);
   const get = (p: string) => agent.get(`/api${p}`);
@@ -26,7 +25,7 @@ describe('Candidate LaTeX resume from candidate/resume.tex (e2e)', () => {
     fs.copyFileSync(path.resolve(__dirname, '../../../../candidate/resume.tex'), target);
     app = await createHttpApp();
     prisma = app.get(PrismaService);
-    hasTex = await new LatexCompiler().available('pdflatex');
+    hasBrowser = await pdfBrowserAvailable();
   });
 
   beforeEach(async () => {
@@ -44,7 +43,7 @@ describe('Candidate LaTeX resume from candidate/resume.tex (e2e)', () => {
 
   it('uses the file as the master template and tailors it without changing the design', async () => {
     const master = (await get('/resume/master').expect(200)).body;
-    expect(master.latex).toMatchObject({ engine: 'pdflatex' });
+    expect(master.latex).toMatchObject({ engine: 'chromium' });
     expect(master.latex.sections).toEqual(expect.arrayContaining(['Experience', 'Production Challenges', 'Selected Projects']));
     expect((await get('/resume/master/tex').expect(200)).text).toBe(SOURCE);
 
@@ -57,10 +56,15 @@ describe('Candidate LaTeX resume from candidate/resume.tex (e2e)', () => {
     expect(tex.length).toBe(SOURCE.length);
     expect(tex).toContain('AWS (EC2, RDS, S3, Lambda)');
 
-    if (hasTex) {
+    if (hasBrowser) {
       expect(version.compileStatus).toBe('ok');
       const pdf = await get(`/resume/versions/${version.id}/pdf`).expect(200);
       expect(pdf.headers['content-type']).toMatch(/pdf/);
+    } else {
+      // No browser here: a clear, actionable message — never a LaTeX error, never a different resume.
+      expect(version.compileStatus).toBe('failed');
+      expect(version.compileLog).toMatch(/playwright install chromium/);
+      expect(version.compileLog).not.toMatch(/pdflatex|TeX/i);
     }
   });
 

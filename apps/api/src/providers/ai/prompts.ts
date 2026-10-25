@@ -1,5 +1,6 @@
 import { profileForPrompt, CandidateProfile } from '../../domain/profile/profile';
 import { firstName, GenerateEmailInput } from '../../domain/email/voice';
+import { LINKEDIN_NOTE_TARGET, LinkedInNoteInput } from '../../domain/linkedin/note';
 import type { MatchResult } from '../../domain/matching/scorer';
 
 /**
@@ -53,7 +54,7 @@ ${args.description.slice(0, 15000)}
 """`;
 }
 
-export function tailorPrompt(args: { jobTitle: string; companyName: string; jobSkills: string[]; description: string; bullets: Array<{ id: string; text: string; roleTechnologies: string[] }> }): string {
+export function tailorPrompt(args: { jobTitle: string; companyName: string; jobSkills: string[]; description: string; bullets: Array<{ id: string; text: string; roleTechnologies: string[] }>; summary?: string }): string {
   return `Rewrite some of the candidate's resume bullets so they align with this job's language — without changing facts.
 
 Rules for each rewrite:
@@ -61,7 +62,8 @@ Rules for each rewrite:
 - Do not add technologies, numbers, metrics, scope, team size or seniority words (led/owned/architected) that are not in the original.
 - Keep each bullet under ~30 words.
 - Only return bullets you actually improved. Skip bullets that are irrelevant to this job.
-
+- In "id" copy the id exactly as given (like L2-0). Put the rewritten bullet only in "text" and a short reason in "reason".
+${args.summary ? '- Also rewrite the SUMMARY below in "summary": same facts and years of experience, the job\'s wording, no more than its current length.\n' : ''}
 JOB: ${args.jobTitle} at ${args.companyName}
 JD technologies: ${args.jobSkills.join(', ')}
 
@@ -71,7 +73,7 @@ ${args.description.slice(0, 6000)}
 """
 
 BULLETS (id: text [role technologies]):
-${args.bullets.map((b) => `${b.id}: ${b.text} [${b.roleTechnologies.join(', ')}]`).join('\n')}`;
+${args.bullets.map((b) => `${b.id}: ${b.text} [${b.roleTechnologies.join(', ')}]`).join('\n')}${args.summary ? `\n\nSUMMARY:\n${args.summary}` : ''}`;
 }
 
 const STYLE_NOTES: Record<GenerateEmailInput['style'], string> = {
@@ -127,4 +129,25 @@ ${kind}
 ${args.previousProblems?.length ? `\nYour previous draft was rejected for: ${args.previousProblems.join('; ')}. Fix these.\n` : ''}
 EARLIER EMAILS IN THIS THREAD:
 ${args.previousEmails.map((e, i) => `--- Email ${i + 1} (${e.sentAt}) — ${e.subject}\n${e.body}`).join('\n\n')}`;
+}
+
+export function linkedinNotePrompt(input: LinkedInNoteInput, candidateName: string, previousProblems?: string[]): string {
+  return `Write a short LinkedIn connection-request note from ${candidateName} to ${input.recipientName ?? 'someone at the company'}${input.recipientRole ? ` (${input.recipientRole})` : ''} at ${input.companyName}. They are interested in the ${input.jobTitle} role.
+
+Rules:
+- At most ${LINKEDIN_NOTE_TARGET} characters in total, including spaces. This is a hard limit.
+- Friendly and specific, like a real person. One or two short sentences about a real overlap, then a soft ask to connect.
+- Greeting: "Hi ${input.recipientName ? firstName(input.recipientName) : 'there'},"
+- Only mention these skills (the candidate really has them): ${input.overlapSkills.slice(0, 4).join(', ') || 'backend systems'}. No other technologies.
+- Verified company facts you may use: ${input.companyFacts.length ? input.companyFacts.map((f) => f.text).join(' | ') : 'none — state no facts about the company'}
+- No links, no email, no phone number. Do not say they applied. Do not ask for a referral or a job.
+- Use the job title exactly as written ("${input.jobTitle}") and name ${input.companyName}. No hashtags, no emoji, no exclamation marks.
+- No clichés ("hope you are well", "thrilled", "keen interest").
+${previousProblems?.length ? `\nYour previous note was rejected for: ${previousProblems.join('; ')}. Fix these.\n` : ''}
+JOB (excerpt):
+"""
+${input.jobSummary.slice(0, 2500)}
+"""
+
+Return {"note": "..."} only.`;
 }

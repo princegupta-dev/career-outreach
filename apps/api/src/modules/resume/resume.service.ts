@@ -1,25 +1,28 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException, OnModuleDestroy } from '@nestjs/common';
 import { Prisma, type Resume, type ResumeSource } from '@prisma/client';
 import { promises as fs } from 'fs';
 import { AuditService } from '../../common/audit.service';
 import { hashObject, sha256 } from '../../common/crypto';
 import { DomainError } from '../../common/http';
 import { PrismaService } from '../../common/prisma.service';
-import { detectEngine, latexOutline, parseLatex, REORDERABLE_SECTION, validateLatexUpload } from '../../domain/latex/latex';
-import { latexBullets, lineDiff, tailorLatex } from '../../domain/latex/tailor-latex';
+import { ENV, Env } from '../../config/env';
+import { latexOutline, parseLatex, resumeBodyText, REORDERABLE_SECTION, sanitizeAssetName, validateLatexUpload } from '../../domain/latex/latex';
+import { canonicalizeSkill, findSkills } from '../../domain/skills/taxonomy';
+import { latexBullets, latexSummary, lineDiff, tailorLatex } from '../../domain/latex/tailor-latex';
 import { classifySkill } from '../../domain/matching/scorer';
 import { resumeFromProfile } from '../../domain/resume/from-profile';
 import { parseResumeText } from '../../domain/resume/parse-text';
-import { bulletSkills, jobSkillWeights, relevance, tailorResume } from '../../domain/resume/tailor';
+import { documentFromData, parseLatexResume, ResumeDocument, ResumeDocumentError } from '../../domain/resume/resume-document';
+import { bulletSkills, jobSkillWeights, relevance, resumeGaps, tailorResume } from '../../domain/resume/tailor';
 import { checkBulletRewrite } from '../../domain/resume/truth-guard';
 import { ResumeChange, ResumeData, resumeDataSchema } from '../../domain/resume/types';
 import { extractJob, JobExtraction } from '../../domain/skills/extract';
-import { LatexCompiler, sanitizeAssetName } from '../../providers/documents/latex-compiler';
-import { PdfKitRenderer } from '../../providers/documents/pdf-renderer';
+import { ChromiumPdfRenderer } from '../../providers/documents/chromium-pdf';
 import { TextResumeParser } from '../../providers/resume/resume-parser';
 import { AiService } from '../ai/ai.service';
 import { ApplicationsService } from '../applications/applications.service';
 import { ProfileService } from '../profile/profile.service';
+import { ResumeSourcesService } from './resume-sources.service';
 
 const MAX_AI_BULLETS = 8;
 
@@ -37,20 +40,42 @@ export interface UploadedFile {
   mimetype: string;
 }
 
+/** What building a PDF produced, or why it could not be built (the message is shown to the user). */
+type Built = { ok: true; pdf: Buffer; pages: number; compact: boolean; warnings: string[] } | { ok: false; error: string };
+
 @Injectable()
-export class ResumeService {
+export class ResumeService implements OnModuleDestroy {
   private readonly logger = new Logger(ResumeService.name);
-  readonly renderer = new PdfKitRenderer();
+  /** HTML template → PDF with headless Chromium. No TeX installation needed. */
+  readonly pdf: ChromiumPdfRenderer;
   readonly parser = new TextResumeParser();
-  readonly compiler = new LatexCompiler();
 
   constructor(
+    @Inject(ENV) env: Env,
     private readonly prisma: PrismaService,
     private readonly profiles: ProfileService,
     private readonly ai: AiService,
     private readonly applications: ApplicationsService,
     private readonly audit: AuditService,
-  ) {}
+    private readonly sources: ResumeSourcesService,
+  ) {
+    this.pdf = new ChromiumPdfRenderer({ executablePath: env.RESUME_BROWSER_PATH || undefined, pageSize: env.RESUME_PAGE_SIZE, timeoutMs: env.RESUME_RENDER_TIMEOUT_MS });
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.pdf.close();
+  }
+
+  /** Draw a document and check the result. Never throws: a failure becomes a message the UI can show next to a retry button. */
+  private async build(doc: () => ResumeDocument): Promise<Built> {
+    try {
+      const r = await this.pdf.renderResume(doc());
+      return { ok: true, pdf: r.pdf, pages: r.pages, compact: r.compact, warnings: r.warnings };
+    } catch (e) {
+      this.logger.warn({ msg: 'Resume PDF could not be built', error: (e as Error).message });
+      return { ok: false, error: (e as Error).message };
+    }
+  }
 
   /**
    * The master resume. Seeded from the candidate profile on first use; if candidate/resume.tex
@@ -88,21 +113,33 @@ export class ResumeService {
     let latex: null | { engine: string | null; sections: string[]; bullets: number; reorderableBullets: number; skillLines: number; compiled: boolean; compileLog: string | null; updatedAt: Date; hasAssets: string[] } = null;
     if (m.latexSource) {
       const doc = parseLatex(m.latexSource);
-      const hasPdf = await this.prisma.resume.count({ where: { id: m.id, pdf: { not: null } } });
+      let hasPdf = await this.prisma.resume.count({ where: { id: m.id, pdf: { not: null } } });
+      let buildError = m.compileLog;
+      if (!hasPdf) {
+        // Never built, or it failed under the old LaTeX engine: try again with the current renderer.
+        try {
+          await this.masterPdf(userId);
+          hasPdf = 1;
+          buildError = null;
+        } catch (e) {
+          buildError = (e as Error).message.slice(0, 8000);
+          await this.prisma.resume.update({ where: { id: m.id }, data: { compileLog: buildError } });
+        }
+      }
       latex = {
-        engine: m.latexEngine,
+        engine: 'chromium',
         sections: doc.sections.map((s) => s.title),
         bullets: doc.lists.reduce((a, l) => a + l.items.length, 0),
         reorderableBullets: doc.lists.filter((l) => REORDERABLE_SECTION.test(l.section)).reduce((a, l) => a + l.items.length, 0),
         skillLines: doc.skillSegments.length,
         compiled: hasPdf > 0,
-        compileLog: m.compileLog,
+        compileLog: buildError,
         updatedAt: m.updatedAt,
         hasAssets: Object.keys((m.latexAssets as Record<string, string> | null) ?? {}),
       };
     }
     const { latexSource: _src, latexAssets: _assets, ...rest } = m;
-    return { ...rest, latex, compilerAvailable: await this.compiler.available(m.latexSource ? detectEngine(m.latexSource) : 'pdflatex') };
+    return { ...rest, latex, rendererAvailable: await this.pdf.available() };
   }
 
   async saveMaster(userId: string, raw: unknown, source: ResumeSource = 'MANUAL') {
@@ -116,6 +153,7 @@ export class ResumeService {
     if (contentHash === master.contentHash) return master;
     const updated = await this.prisma.resume.update({ where: { id: master.id }, data: { data: data as unknown as Prisma.InputJsonValue, contentHash, source }, omit: OMIT_PDF });
     await this.audit.log('resume.master_updated', { userId, entityType: 'resume', entityId: master.id, metadata: { source } });
+    await this.sources.recordMasterChange(userId, source === 'SEED' ? 'Reset from profile' : 'Edited in the resume editor');
     return { ...updated, data };
   }
 
@@ -153,8 +191,15 @@ export class ResumeService {
       if (f.buffer.length > 5 * 1024 * 1024) throw new DomainError(`${name} is larger than 5 MB`, 400);
       assets[name] = f.buffer.toString('base64');
     }
-    const engine = detectEngine(source);
-    const compiled = await this.compiler.compile(source, assets, engine);
+    // Read the content the PDF will be drawn from. If it cannot be read, say so now instead of producing a thin resume later.
+    let layout: ResumeDocument;
+    try {
+      layout = parseLatexResume(source, (await this.profiles.get()).name);
+    } catch (e) {
+      if (e instanceof ResumeDocumentError) throw new DomainError(`We could not read your resume content from this file: ${e.message}`, 400);
+      throw e;
+    }
+    const compiled = await this.build(() => layout);
 
     // Derive structured data (for emails/analysis) from the LaTeX content, keeping profile contact details.
     const profile = await this.profiles.get();
@@ -173,18 +218,20 @@ export class ResumeService {
       data: {
         latexSource: source,
         latexAssets: assets as Prisma.InputJsonValue,
-        latexEngine: compiled.engine,
+        latexEngine: 'chromium',
         latexHash: sha256(source + JSON.stringify(Object.keys(assets).sort())),
         pdf: compiled.ok ? toBytes(compiled.pdf) : null,
-        compileLog: compiled.ok ? null : `${compiled.error}\n\n${compiled.log}`.slice(0, 8000),
+        compileLog: compiled.ok ? null : compiled.error.slice(0, 8000),
         data: data as unknown as Prisma.InputJsonValue,
         contentHash: hashObject(data),
         source: 'IMPORT',
       },
       omit: OMIT_PDF,
     });
-    await this.audit.log('resume.latex_uploaded', { userId, entityType: 'resume', entityId: master.id, metadata: { engine: compiled.engine, compiled: compiled.ok, assets: Object.keys(assets) } });
-    return { compiled: compiled.ok, error: compiled.error ?? null, engine: compiled.engine, summary: await this.masterSummary(userId) };
+    // Before the first upload there is nothing to version yet: the snapshot taken later covers it.
+    if (master.activeSourceVersionId) await this.sources.recordMasterChange(userId, 'Uploaded .tex resume');
+    await this.audit.log('resume.latex_uploaded', { userId, entityType: 'resume', entityId: master.id, metadata: { compiled: compiled.ok, pages: compiled.ok ? compiled.pages : null, assets: Object.keys(assets) } });
+    return { compiled: compiled.ok, error: compiled.ok ? null : compiled.error, engine: 'chromium', summary: await this.masterSummary(userId) };
   }
 
   async removeLatex(userId: string) {
@@ -199,13 +246,14 @@ export class ResumeService {
   }
 
   private async masterPdf(userId: string): Promise<Buffer> {
+    await this.getMaster(userId); // creates (or imports candidate/resume.tex into) the master on first use
     const m = await this.prisma.resume.findFirstOrThrow({ where: { userId, isMaster: true, deletedAt: null }, orderBy: { updatedAt: 'desc' } });
     if (m.pdf) return Buffer.from(m.pdf);
-    if (!m.latexSource) throw new DomainError('No LaTeX resume', 400);
-    const c = await this.compiler.compile(m.latexSource, (m.latexAssets as Record<string, string>) ?? {}, m.latexEngine);
-    if (!c.ok) throw new DomainError(`Your LaTeX resume could not be compiled: ${c.error}`, 422, { log: c.log.slice(-2000) });
-    await this.prisma.resume.update({ where: { id: m.id }, data: { pdf: toBytes(c.pdf), compileLog: null } });
-    return c.pdf!;
+    const profile = await this.profiles.get();
+    const built = await this.build(() => (m.latexSource ? parseLatexResume(m.latexSource, profile.name) : documentFromData(resumeDataSchema.parse(m.data))));
+    if (!built.ok) throw new DomainError(`Your resume could not be turned into a PDF: ${built.error}`, 422);
+    await this.prisma.resume.update({ where: { id: m.id }, data: { pdf: toBytes(built.pdf), compileLog: null } });
+    return built.pdf;
   }
 
   // ─── Tailoring ─────────────────────────────────────────────────────────────
@@ -216,13 +264,21 @@ export class ResumeService {
    * compile to PDF. Without: structured selection + built-in PDF layout.
    * Re-uses the stored version when inputs are unchanged.
    */
-  async tailor(userId: string, jobId: string, opts: { useAi?: boolean; force?: boolean } = {}) {
+  async tailor(userId: string, jobId: string, opts: { useAi?: boolean; force?: boolean; confirmedSkills?: string[] } = {}) {
     const job = await this.prisma.job.findFirst({ where: { id: jobId, userId }, include: { company: true, application: true } });
     if (!job) throw new NotFoundException('Job not found');
     const master = await this.getMaster(userId);
     const profile = await this.profiles.get();
     const useAi = !!opts.useAi && this.ai.usesLlm;
-    const inputHash = hashObject({ master: master.contentHash, latex: master.latexHash, job: job.contentHash, profile: profile.hash, useAi, v: 'v2' });
+    // Skills the person said they have. Only canonical skills that this job actually asks for can be added.
+    // Not stated => keep what was confirmed for this job before (so re-running "Prepare" does not drop them).
+    let confirmed = opts.confirmedSkills;
+    if (confirmed === undefined) {
+      const prev = await this.prisma.resumeVersion.findFirst({ where: { userId, jobId }, orderBy: { createdAt: 'desc' }, select: { changes: true } });
+      confirmed = ((prev?.changes as { confirmedSkills?: string[] } | null)?.confirmedSkills ?? []).filter((x) => typeof x === 'string');
+    }
+    const confirmedKey = [...new Set(confirmed.map((x) => canonicalizeSkill(x)))].sort();
+    const inputHash = hashObject({ master: master.contentHash, latex: master.latexHash, job: job.contentHash, profile: profile.hash, useAi, skills: confirmedKey, v: 'v4' });
 
     if (!opts.force) {
       const existing = await this.prisma.resumeVersion.findUnique({ where: { resumeId_jobId_inputHash: { resumeId: master.id, jobId, inputHash } }, omit: OMIT_PDF });
@@ -234,29 +290,31 @@ export class ResumeService {
 
     const extraction = (job.extracted as unknown as JobExtraction | null) ?? extractJob({ title: job.title, description: job.description, location: job.location, companyName: job.company.name });
     const weights = jobSkillWeights(extraction);
-    const gaps = [...weights.keys()].filter((s) => classifySkill(s, profile).level !== 'strong');
+    const addSkills = confirmedKey.filter((x) => weights.has(x));
+    // LaTeX master: gaps are measured against the resume body (not the header, whose "GitHub" link label is not a skill). Structured master: tailorResume reports them below.
+    let gaps = master.latexSource ? resumeGaps(resumeBodyText(master.latexSource), weights) : [...weights.keys()].filter((s) => classifySkill(s, profile).level !== 'strong');
     let data = master.data;
     let changes: ResumeChange[] = [];
     let latex: string | null = null;
-    let pdf: Buffer | null = null;
-    let compileStatus: string | null = null;
-    let compileLog: string | null = null;
+    let built: Built | null = null;
     let rejected: Array<{ id: string; reasons: string[] }> = [];
     let aiAssisted = false;
 
     if (master.latexSource) {
       const doc = parseLatex(master.latexSource);
+      const summary = latexSummary(doc)?.text;
+      let summaryRewrite: string | undefined;
       let rewrites: Array<{ id: string; text: string; reason?: string }> = [];
       if (useAi) {
         const candidates = latexBullets(doc, weights)
           .filter((b) => b.simple && b.relevance > 0)
           .sort((a, b) => b.relevance - a.relevance)
           .slice(0, MAX_AI_BULLETS);
-        if (candidates.length) {
+        if (candidates.length || summary) {
           const ai = await this.ai.run(
             userId,
             'RESUME_TAILOR',
-            { inputHash, bullets: candidates.map((c) => [c.id, c.text]) },
+            { inputHash, bullets: candidates.map((c) => [c.id, c.text]), summary },
             (p) =>
               p.tailorResume({
                 profile,
@@ -265,25 +323,26 @@ export class ResumeService {
                 jobSkills: [...extraction.requiredSkills, ...extraction.preferredSkills],
                 description: job.description,
                 bullets: candidates.map((c) => ({ id: c.id, text: c.text, roleTechnologies: [] })),
+                summary,
               }),
             { force: opts.force },
           );
           rewrites = ai.output.rewrites;
+          summaryRewrite = ai.output.summary;
         }
       }
-      const result = tailorLatex(master.latexSource, weights, { rewrites });
+      const result = tailorLatex(master.latexSource, weights, { rewrites, summaryRewrite, addSkills, summarySkills: [...findSkills(resumeBodyText(master.latexSource)).keys(), ...addSkills] });
       latex = result.latex;
       changes = result.changes;
       rejected = result.rejected;
-      aiAssisted = changes.some((c) => c.section === 'bullet');
-      const compiled = await this.compiler.compile(latex, (master.latexAssets as Record<string, string>) ?? {}, master.latexEngine);
-      compileStatus = compiled.ok ? 'ok' : 'failed';
-      compileLog = compiled.ok ? null : `${compiled.error}\n\n${compiled.log}`.slice(0, 8000);
-      pdf = compiled.ok ? compiled.pdf! : null;
+      aiAssisted = changes.some((c) => c.section === 'bullet' || c.section === 'summary');
+      gaps = gaps.filter((g) => !changes.some((c) => c.section === 'skills' && c.change === `Added skill you confirmed: ${g}`));
+      built = await this.build(() => parseLatexResume(latex!, profile.name));
     } else {
       const result = tailorResume(master.data, extraction, profile, job.title);
       data = result.data;
       changes = [...result.changes];
+      gaps = result.gaps; // checked against the resume's own skills, not just the profile
       if (useAi) {
         const candidates = data.experience
           .flatMap((e) => e.bullets.map((b) => ({ id: b.id, text: b.text, roleTechnologies: e.technologies, rel: relevance(bulletSkills(b), weights) })))
@@ -327,15 +386,21 @@ export class ResumeService {
       }
     }
 
+    if (!built) {
+      const finalData = data;
+      built = await this.build(() => documentFromData(finalData));
+    }
+    const compileStatus = built.ok ? 'ok' : 'failed';
     const payload = {
       data: data as unknown as Prisma.InputJsonValue,
-      changes: { changes, gaps, rejected, format: master.latexSource ? 'latex' : 'structured' } as unknown as Prisma.InputJsonValue,
+      changes: { changes, gaps, rejected, confirmedSkills: addSkills, format: master.latexSource ? 'latex' : 'structured', ...(built.ok ? { pages: built.pages, compact: built.compact, warnings: built.warnings } : {}) } as unknown as Prisma.InputJsonValue,
       contentHash: hashObject({ data, latex }),
+      sourceVersionId: master.activeSourceVersionId,
       aiAssisted,
       latex,
-      pdf: toBytes(pdf),
+      pdf: toBytes(built.ok ? built.pdf : null),
       compileStatus,
-      compileLog,
+      compileLog: built.ok ? null : built.error.slice(0, 8000),
     };
     const version = await this.prisma.resumeVersion.upsert({
       where: { resumeId_jobId_inputHash: { resumeId: master.id, jobId, inputHash } },
@@ -387,11 +452,16 @@ export class ResumeService {
       const v = await this.prisma.resumeVersion.findFirst({ where: { id: versionId, userId } });
       if (!v) throw new NotFoundException('Resume version not found');
       if (v.pdf) return { buffer: Buffer.from(v.pdf), filename };
-      if (v.latex) throw new DomainError(`The tailored LaTeX resume failed to compile: ${(v.compileLog ?? '').split('\n')[0]}`, 422);
-      return { buffer: await this.renderer.renderResume(resumeDataSchema.parse(v.data)), filename };
+      // No PDF stored: a version saved before PDFs were kept with it, or one whose earlier build failed (for example
+      // when no browser was installed yet). Build it again from what was saved; the saved content is what it was.
+      const built = await this.build(() => (v.latex ? parseLatexResume(v.latex, profile.name) : documentFromData(resumeDataSchema.parse(v.data))));
+      if (!built.ok) {
+        await this.prisma.resumeVersion.update({ where: { id: v.id }, data: { compileStatus: 'failed', compileLog: built.error.slice(0, 8000) } });
+        throw new DomainError(`The tailored resume could not be built: ${built.error}`, 422);
+      }
+      await this.prisma.resumeVersion.update({ where: { id: v.id }, data: { pdf: toBytes(built.pdf), compileStatus: 'ok', compileLog: null } });
+      return { buffer: built.pdf, filename };
     }
-    const master = await this.getMaster(userId);
-    if (master.latexSource) return { buffer: await this.masterPdf(userId), filename };
-    return { buffer: await this.renderer.renderResume(master.data), filename };
+    return { buffer: await this.masterPdf(userId), filename };
   }
 }

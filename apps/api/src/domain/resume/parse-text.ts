@@ -10,18 +10,57 @@ const HEADINGS: Array<[RegExp, Section]> = [
   [/^(personal |key |selected )?projects?$/i, 'projects'],
   [/^(education|academics?|academic background)$/i, 'education'],
   [/^(technical |core )?(skills|technologies|tech stack|competencies)$/i, 'skills'],
-  [/^(achievements|accomplishments|awards|honou?rs)$/i, 'achievements'],
+  [/^(key )?(achievements|accomplishments|awards|honou?rs|highlights)$/i, 'achievements'],
+  [/^(production |engineering |technical )?challenges( solved)?$/i, 'achievements'],
   [/^(certifications?|licenses?( & certifications)?)$/i, 'certifications'],
 ];
 
-const BULLET = /^\s*([•●▪◦\-*–·]|\d+\.)\s+/;
+/** "•", "–" and "▪" are often glued to the text in PDFs ("–Built …"); "-", "*" and "1." need a space after them. */
+const BULLET = /^\s*(?:[•●▪◦–·]\s*|[-*]\s+|\d+\.\s+)/;
+const MARKER_ONLY = /^[•●▪◦–·*-]$/;
 const DATE_RANGE = /((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{4}|\d{1,2}\/\d{4}|\d{4})\s*(?:-|–|—|to)\s*((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{4}|\d{1,2}\/\d{4}|\d{4}|present|current|now)/i;
 
 function headingOf(line: string): Section | null {
   const t = line.replace(/[:：]$/, '').trim();
   if (t.length > 40) return null;
   for (const [re, s] of HEADINGS) if (re.test(t)) return s;
+  // Any other short ALL-CAPS line ("CURRENT LEARNING") is a heading too, so its text is not merged into the section above.
+  if (/^[A-Z][A-Z &/]{3,}$/.test(t) && t.split(/\s+/).length <= 4) return 'other';
   return null;
+}
+
+interface Item {
+  bullet: boolean;
+  text: string;
+}
+
+/**
+ * Turn the raw lines of one section into items: bullets (with their wrapped lines joined back together) and plain
+ * lines. `startsEntry` says when a plain line after a bullet begins a new entry rather than continuing the bullet.
+ */
+function toItems(lines: string[], startsEntry: (line: string) => boolean): Item[] {
+  const items: Item[] = [];
+  let nextIsBullet = false;
+  for (const raw of lines) {
+    let line = raw.trim();
+    if (MARKER_ONLY.test(line)) {
+      nextIsBullet = true;
+      continue;
+    }
+    // "…workflows.–" — the marker of the next bullet glued to the end of this line.
+    const trailing = /[^\s][•–]$/.test(line);
+    if (trailing) line = line.slice(0, -1).trimEnd();
+    const last = items[items.length - 1];
+    if (BULLET.test(line) || nextIsBullet) {
+      items.push({ bullet: true, text: line.replace(BULLET, '').trim() });
+    } else if (last?.bullet && !startsEntry(line)) {
+      last.text = last.text.endsWith('-') ? `${last.text}${line}` : `${last.text} ${line}`;
+    } else {
+      items.push({ bullet: false, text: line });
+    }
+    nextIsBullet = trailing;
+  }
+  return items.filter((i) => i.text);
 }
 
 /**
@@ -50,12 +89,13 @@ export function parseResumeText(text: string, fallbackName = ''): ResumeData {
   const github = /(https?:\/\/)?(www\.)?github\.com\/[\w-]+\/?/i.exec(all)?.[0] ?? '';
   const name = buckets.header.find((l) => /^[A-Za-z][A-Za-z .'-]{2,40}$/.test(l) && l.split(' ').length <= 4) ?? fallbackName;
 
-  // Experience: an entry starts on a non-bullet line; bullets attach to the latest entry.
+  // Experience: an entry starts on a plain line; bullets attach to the latest entry. After a bullet, only a line with
+  // a date range starts a new role (everything else is the bullet wrapping onto the next line).
   const experience: ResumeData['experience'] = [];
-  for (const line of buckets.experience) {
-    if (BULLET.test(line) && experience.length) {
+  for (const { bullet, text: line } of toItems(buckets.experience, (l) => DATE_RANGE.test(l))) {
+    if (bullet && experience.length) {
       const exp = experience[experience.length - 1];
-      exp.bullets.push({ id: `${exp.id}-b${exp.bullets.length + 1}`, text: line.replace(BULLET, '').trim() });
+      exp.bullets.push({ id: `${exp.id}-b${exp.bullets.length + 1}`, text: line });
       continue;
     }
     const dates = DATE_RANGE.exec(line);
@@ -94,10 +134,11 @@ export function parseResumeText(text: string, fallbackName = ''): ResumeData {
   }
 
   const projects: ResumeData['projects'] = [];
-  for (const line of buckets.projects) {
-    if (BULLET.test(line) && projects.length) {
+  // A project title line looks like "Name – what it is | tech"; any other line after a bullet continues it.
+  for (const { bullet, text: line } of toItems(buckets.projects, (l) => /\s[|–—]\s/.test(l))) {
+    if (bullet && projects.length) {
       const p = projects[projects.length - 1];
-      p.bullets.push({ id: `${p.id}-b${p.bullets.length + 1}`, text: line.replace(BULLET, '').trim() });
+      p.bullets.push({ id: `${p.id}-b${p.bullets.length + 1}`, text: line });
     } else {
       const [n, ...desc] = line.split(/\s+[-–—:|]\s+/);
       projects.push({ id: `proj-${projects.length + 1}`, name: n.trim(), description: desc.join(' — ').trim(), technologies: [...findSkills(line).keys()], bullets: [] });
@@ -111,13 +152,16 @@ export function parseResumeText(text: string, fallbackName = ''): ResumeData {
     .filter((s) => s && s.length < 40);
   const detected = [...new Set([...rawSkills.map(canonicalizeSkill), ...findSkills(skillText).keys()])];
 
+  const eduText = buckets.education.map((l) => l.replace(DATE_RANGE, (m) => ` ${m}`));
+  const range = DATE_RANGE.exec(eduText.join(' '));
   const education = buckets.education.length
     ? [
         {
-          degree: buckets.education.find((l) => /(b\.?tech|bachelor|master|m\.?tech|b\.?e\.?|b\.?sc|m\.?sc|mba|phd)/i.test(l)) ?? buckets.education[0],
+          degree: (eduText.find((l) => /(b\.?tech|bachelor|master|m\.?tech|b\.?e\.?|b\.?sc|m\.?sc|mba|phd)/i.test(l)) ?? eduText[0]).replace(DATE_RANGE, '').trim(),
           field: '',
-          institution: buckets.education.find((l) => /(university|institute|college|iit|nit|school)/i.test(l)) ?? '',
-          year: /\b(19|20)\d{2}\b/.exec(buckets.education.join(' '))?.[0] ?? null,
+          institution: eduText.find((l) => /(university|institute|college|iit|nit|school)/i.test(l))?.replace(DATE_RANGE, '').trim() ?? '',
+          // The end of a "2019 – 2023" range is the graduation year.
+          year: range ? range[2] : (/\b(19|20)\d{2}\b/.exec(eduText.join(' '))?.[0] ?? null),
         },
       ]
     : [];
@@ -138,7 +182,7 @@ export function parseResumeText(text: string, fallbackName = ''): ResumeData {
     projects,
     education,
     skills: groupSkills(detected),
-    achievements: buckets.achievements.map((t, i) => ({ id: `ach-${i + 1}`, text: t.replace(BULLET, '') })),
+    achievements: toItems(buckets.achievements, () => false).map((t, i) => ({ id: `ach-${i + 1}`, text: t.text })),
     certifications: buckets.certifications.map((t) => ({ name: t.replace(BULLET, ''), issuer: '', year: null })),
   };
 }

@@ -18,7 +18,7 @@ interface MasterSummary {
     updatedAt: string;
     hasAssets: string[];
   };
-  compilerAvailable: boolean;
+  rendererAvailable: boolean;
 }
 
 /** Upload / status of the user's own LaTeX resume (the template for every tailored PDF). */
@@ -56,15 +56,19 @@ export function LatexResumeCard({ onChanged }: { onChanged?: () => void }) {
         <div className="space-y-2 text-sm text-ink-soft">
           <p>Upload your existing resume&apos;s <b>.tex</b> file (select any .cls/.sty/font files it needs at the same time).</p>
           <p className="text-xs text-ink-muted">
-            For each job, the app only re-orders your existing bullets and skills (and, with AI enabled, rephrases plain bullets under a strict no-new-facts check), then compiles your own LaTeX. Your design is never changed.
+            Your .tex is the source of the content. For each job, the app only re-orders your existing bullets and skills (and, with AI enabled, rephrases plain bullets under a strict no-new-facts check), then draws a clean, ATS-friendly PDF from the built-in template. Nothing needs to be installed to compile LaTeX.
           </p>
-          {!data.compilerAvailable && <p className="text-xs text-amber-800">No LaTeX engine found in this environment — run the app with Docker (TeX Live included) to compile PDFs.</p>}
+          {!data.rendererAvailable && (
+            <p className="text-xs text-amber-800">
+              No browser engine found for building PDFs — run <code>npx playwright install chromium</code> (the Docker image already includes it).
+            </p>
+          )}
         </div>
       ) : (
         <div className="space-y-3 text-sm">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={l.compiled ? 'green' : 'red'}>{l.compiled ? 'Compiles ✓' : 'Does not compile'}</Badge>
-            <Badge>{l.engine}</Badge>
+            <Badge tone={l.compiled ? 'green' : 'red'}>{l.compiled ? 'PDF builds ✓' : 'PDF could not be built'}</Badge>
+            <Badge>Built-in template</Badge>
             <span className="text-xs text-ink-muted">uploaded {formatDateTime(l.updatedAt)}</span>
           </div>
           <p className="text-xs text-ink-soft">

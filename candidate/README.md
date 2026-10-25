@@ -7,7 +7,7 @@ connect Gmail** — otherwise the app will score jobs and write emails as someon
 | File | What it is | Required? |
 | --- | --- | --- |
 | `candidate-profile.md` | Your profile: target roles, locations, skills, domains, projects | Yes |
-| `resume.tex` | Your LaTeX resume, used as the design template for every tailored PDF | No — without it the app builds a clean PDF from the profile |
+| `resume.tex` | Your resume **content** (sections, roles, bullets, skills), tailored per job | No — without it the resume is built from the profile |
 
 Both are mounted into Docker (`./candidate:/app/candidate`), so edits apply without a rebuild. You can
 also edit the profile in the app (**Profile** page) and upload a `.tex` on the **Resume** page.
@@ -31,10 +31,12 @@ The file is YAML between the two `---` lines, followed by free-form Markdown not
 
 ## Using your own `resume.tex`
 
-- It must compile on its own (pdfLaTeX, or XeLaTeX if it uses `fontspec` / `% !TEX program = xelatex`).
-- Bullets in `\item` lists (or custom macros like `\resumeItem{…}`) get re-ordered per job; comma
-  lists like `Languages: …` get re-ordered too. The layout, preamble and length never change.
-- Extra files (`.cls`, `.sty`, fonts, images) can be uploaded together on the **Resume** page.
+- LaTeX is **not** run. The app reads the content of your `.tex` and draws the PDF from a built-in,
+  ATS-friendly one-column template, so your own fonts and margins are not reproduced.
+- The reader understands `\section`, `\subheading`/`\resumeSubheading`, `\project`,
+  `\itemx`/`\resumeItem`, `\item`, `\textbf`, `\textit`/`\emph`, `\texttt` and `\href`. A file it can't
+  read is rejected at upload with an explanation.
+- Bullets get re-ordered per job, and so do comma lists like `Languages: …`. Nothing is added or removed.
 
 After changing either file, open **Profile** in the app to confirm it parsed, then click
 **Find jobs now** on the dashboard.

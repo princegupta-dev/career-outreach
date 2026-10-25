@@ -1,3 +1,4 @@
+import { linkedinNoteSchema } from '../../domain/linkedin/note';
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import type { z } from 'zod';
@@ -9,13 +10,14 @@ import {
   emailDraftSchema,
   GenerateEmailRequest,
   GenerateFollowupInput,
+  GenerateLinkedInNoteInput,
   JobAnalysis,
   jobAnalysisSchema,
   TailorResumeInput,
   TailoredBullets,
   tailoredBulletsSchema,
 } from './ai-provider.interface';
-import { analyzeJobPrompt, emailPrompt, followupPrompt, profileBlock, SYSTEM_RULES, tailorPrompt } from './prompts';
+import { analyzeJobPrompt, emailPrompt, followupPrompt, linkedinNotePrompt, profileBlock, SYSTEM_RULES, tailorPrompt } from './prompts';
 import type { CandidateProfile } from '../../domain/profile/profile';
 
 export class AiProviderError extends Error {
@@ -40,6 +42,9 @@ export interface AnthropicProviderOptions {
 export class AnthropicProvider implements AIProvider {
   readonly name = 'anthropic';
   readonly isLlm = true;
+  get model(): string {
+    return this.opts.model;
+  }
   private readonly client: Anthropic;
 
   constructor(private readonly opts: AnthropicProviderOptions) {
@@ -94,5 +99,9 @@ export class AnthropicProvider implements AIProvider {
   async generateFollowup(input: GenerateFollowupInput): Promise<AiResult<EmailDraft>> {
     const r = await this.call(input.profile, followupPrompt({ ...input, candidateName: input.profile.name }), emailDraftSchema, 3000);
     return { ...r, output: { ...r.output, provider: this.name } };
+  }
+
+  generateLinkedInNote(req: GenerateLinkedInNoteInput): Promise<AiResult<{ note: string }>> {
+    return this.call(req.profile, linkedinNotePrompt(req.input, req.profile.name, req.previousProblems), linkedinNoteSchema, 600);
   }
 }
