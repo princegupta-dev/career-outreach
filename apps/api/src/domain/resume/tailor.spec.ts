@@ -113,7 +113,7 @@ Node.js, TypeScript, Redis, MySQL`;
 describe('resumeGaps (what the job asks for that is not on the resume)', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { resumeBodyText } = require('../latex/latex') as typeof import('../latex/latex');
-  const text = resumeBodyText(fs.readFileSync(path.resolve(__dirname, '../../../../../candidate/resume.tex'), 'utf8')); // body only: the header's "GitHub" link label is not a skill
+  const text = resumeBodyText(fs.readFileSync(path.resolve(__dirname, '../../../../../candidate/resume.example.tex'), 'utf8')); // body only: the header's "GitHub" link label is not a skill
   const weights = (skills: string[]) => new Map(skills.map((s) => [s, 2]));
 
   it('never reports a skill that is on the resume — checked against the real resume text', () => {

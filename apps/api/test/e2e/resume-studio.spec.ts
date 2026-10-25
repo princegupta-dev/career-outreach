@@ -33,7 +33,7 @@ const RESUME_LINES = [
   'Languages: TypeScript, JavaScript, SQL',
   'Backend: Node.js, NestJS, Express.js',
   'Education',
-  'B.Tech Computer Science, Indira Gandhi University, 2023',
+  'B.Tech Computer Science, Example Institute of Technology, 2023',
 ];
 
 describe('Resume Studio: versioned master resume (e2e)', () => {
@@ -50,7 +50,7 @@ describe('Resume Studio: versioned master resume (e2e)', () => {
   const upload = (buf: Buffer, name: string) => agent.post('/api/resume/sources').set('x-csrf-token', csrf).attach('file', buf, name);
 
   beforeAll(async () => {
-    fs.copyFileSync(path.resolve(__dirname, '../../../../candidate/resume.tex'), target);
+    fs.copyFileSync(path.resolve(__dirname, '../../../../candidate/resume.example.tex'), target);
     app = await createHttpApp();
     prisma = app.get(PrismaService);
   });

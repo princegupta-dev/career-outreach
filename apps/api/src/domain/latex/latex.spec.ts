@@ -128,12 +128,12 @@ describe('LaTeX tailoring (design-preserving)', () => {
   });
 });
 
-describe("Prince's own resume (candidate/resume.tex)", () => {
-  const PRINCE = fs.readFileSync(path.resolve(__dirname, '../../../../../candidate/resume.tex'), 'utf8');
+describe("the sample resume (candidate/resume.example.tex)", () => {
+  const SAMPLE = fs.readFileSync(path.resolve(__dirname, '../../../../../candidate/resume.example.tex'), 'utf8');
   const backend = jobSkillWeights(
     extractJob({ title: 'Senior Backend Engineer', description: 'Requirements: Node.js, PostgreSQL, Kafka, AWS, Docker, Kubernetes, Redis, TypeScript, idempotency, distributed systems.' }),
   );
-  const result = tailorLatex(PRINCE, backend);
+  const result = tailorLatex(SAMPLE, backend);
   // Same lines in any order, with comma-separated parts in any order (skills are permuted in place).
   const lowerLines = (s: string) =>
     s
@@ -144,7 +144,7 @@ describe("Prince's own resume (candidate/resume.tex)", () => {
       .join('\n');
 
   it('keeps parenthesised groups and trailing ";" clauses intact in skills lines', () => {
-    const segs = parseLatex(PRINCE).skillSegments.map((s) => s.items);
+    const segs = parseLatex(SAMPLE).skillSegments.map((s) => s.items);
     expect(segs).toContainEqual(['AWS (EC2, RDS, S3, Lambda)', 'Docker', 'Kubernetes', 'Jenkins', 'CI/CD']);
     expect(segs).toContainEqual(['LLM integration', 'AI-assisted workflows', 'content summarization', 'intelligent automation']);
     expect(result.latex).toContain('AWS (EC2, RDS, S3, Lambda)');
@@ -162,9 +162,9 @@ describe("Prince's own resume (candidate/resume.tex)", () => {
 
   it('changes only order: preamble, macros and every line are preserved', () => {
     const pre = (s: string) => s.slice(0, s.indexOf('\\begin{document}'));
-    expect(pre(result.latex)).toBe(pre(PRINCE));
-    expect(result.latex.length).toBe(PRINCE.length);
-    expect(lowerLines(result.latex)).toBe(lowerLines(PRINCE));
+    expect(pre(result.latex)).toBe(pre(SAMPLE));
+    expect(result.latex.length).toBe(SAMPLE.length);
+    expect(lowerLines(result.latex)).toBe(lowerLines(SAMPLE));
   });
 
   it('keeps sentence case when a lower-case skill moves to the front', () => {
@@ -173,7 +173,7 @@ describe("Prince's own resume (candidate/resume.tex)", () => {
 
   it('rephrases a plain \\itemx bullet inside the macro and rejects invented tech', () => {
     const b = result.bullets.find((x) => /Improve database access/.test(x.text))!;
-    const r = tailorLatex(PRINCE, backend, {
+    const r = tailorLatex(SAMPLE, backend, {
       rewrites: [
         { id: b.id, text: 'Improved API responsiveness and database access through SQL tuning, indexing, Redis caching, and efficient data-access patterns.' },
         { id: result.bullets.find((x) => /Shopify APIs/.test(x.text))!.id, text: 'Integrated Shopify and Kafka event streams for 10M users.' },

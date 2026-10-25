@@ -32,8 +32,21 @@ export class ProfileService {
     return path.join(path.dirname(this.filePath), 'resume.tex');
   }
 
+  /** Sample profile shipped in the repo (candidate/candidate-profile.example.md). */
+  get examplePath(): string {
+    return path.join(path.dirname(this.filePath), 'candidate-profile.example.md');
+  }
+
   async readMarkdown(): Promise<string> {
-    return fs.readFile(this.filePath, 'utf8');
+    try {
+      return await fs.readFile(this.filePath, 'utf8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      // First run on a fresh clone: start from the sample so the app works, and say so loudly.
+      await fs.copyFile(this.examplePath, this.filePath);
+      this.logger.warn({ msg: 'No candidate profile found — created it from the sample. Replace it with your own facts.', path: this.filePath });
+      return fs.readFile(this.filePath, 'utf8');
+    }
   }
 
   /** Parsed profile, re-read when the file changes (checked at most every 2s). */

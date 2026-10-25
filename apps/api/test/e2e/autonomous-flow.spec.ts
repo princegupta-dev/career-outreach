@@ -76,7 +76,7 @@ describe('Autonomous discovery → cold outreach (e2e)', () => {
     const versionId = job.application.resumeVersionId;
     const pdf = await get(`/resume/versions/${versionId}/download`).expect(200);
     expect(pdf.headers['content-type']).toBe('application/pdf');
-    expect(pdf.headers['content-disposition']).toMatch(/attachment; filename="Prince_Gupta_Resume\.pdf"/);
+    expect(pdf.headers['content-disposition']).toMatch(/attachment; filename="Alex_Morgan_Resume\.pdf"/);
     expect(pdf.body.subarray(0, 4).toString()).toBe('%PDF');
 
     // ── Preview email (already drafted by the automation, mirrored to Gmail Drafts) ──

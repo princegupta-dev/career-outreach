@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { parseLatex } from './latex';
 import { latexSummary, tailorLatex } from './tailor-latex';
 
-const source = readFileSync(join(__dirname, '../../../../../candidate/resume.tex'), 'utf8');
+const source = readFileSync(join(__dirname, '../../../../../candidate/resume.example.tex'), 'utf8');
 const weights = new Map<string, number>([['Node.js', 3]]);
 
 describe('latexSummary', () => {

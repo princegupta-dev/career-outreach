@@ -21,7 +21,7 @@ process.env.GOOGLE_CLIENT_ID = 'test-client-id';
 process.env.GOOGLE_CLIENT_SECRET = 'test-client-secret';
 process.env.GOOGLE_REDIRECT_URI = 'http://localhost:3000/api/email/gmail/callback';
 
-const source = path.resolve(__dirname, '../../../../candidate/candidate-profile.md');
+const source = path.resolve(__dirname, '../../../../candidate/candidate-profile.example.md');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jh-profile-'));
 const target = path.join(dir, 'candidate-profile.md');
 fs.copyFileSync(source, target);

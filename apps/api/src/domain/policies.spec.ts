@@ -180,7 +180,7 @@ describe('contact ranking', () => {
 describe('candidate profile', () => {
   const profile = loadProfile();
   it('loads the canonical profile file', () => {
-    expect(profile.name).toBe('Prince Gupta');
+    expect(profile.name).toBe('Alex Morgan');
     expect(profile.current_title).toBe('Senior Software Engineer');
     expect(profile.strongSkills).toEqual(expect.arrayContaining(['Node.js', 'TypeScript', 'NestJS', 'Redis', 'BullMQ', 'AWS']));
     expect(profile.experienceYears).toBe(3);

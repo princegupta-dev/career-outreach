@@ -65,7 +65,7 @@ export interface VoiceRules {
 }
 
 /**
- * Validates a generated email against Prince's voice + truthfulness rules.
+ * Validates a generated email against the candidate's voice + truthfulness rules.
  * `problems` are hard failures; `warnings` are shown to the user for review.
  */
 export function checkVoice(draft: EmailDraftLike, rules: VoiceRules): VoiceCheck {

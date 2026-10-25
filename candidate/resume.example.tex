@@ -1,0 +1,112 @@
+% Alex Morgan - SAMPLE resume (fictional person). Copy to resume.tex and replace with your own.
+\documentclass[letterpaper,10pt]{article}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage[hidelinks]{hyperref}
+\usepackage{enumitem}
+\usepackage[english]{babel}
+\input{glyphtounicode}
+\pdfgentounicode=1
+\pagestyle{empty}
+\addtolength{\oddsidemargin}{-.5in}
+\addtolength{\evensidemargin}{-.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.55in}
+\addtolength{\textheight}{1.05in}
+\raggedright
+\setlength{\tabcolsep}{0in}
+\titleformat{\section}{\vspace{-4pt}\scshape\raggedright\large}{}{0em}{}[\titlerule\vspace{-5pt}]
+\newcommand{\itemx}[1]{\item\small{#1\vspace{-2pt}}}
+\newcommand{\subheading}[4]{\item \textbf{#1}\hfill #2\\\textit{\small #3}\hfill\textit{\small #4}\vspace{-5pt}}
+\newcommand{\project}[2]{\item \small{\textbf{#1} $|$ \emph{#2}}\vspace{-5pt}}
+\begin{document}
+\begin{center}
+{\Huge \textbf{Alex Morgan}}\\ \vspace{3pt}
+\small Full-Stack Software Engineer $|$ Backend Systems \& GenAI $|$ Bengaluru, India\\
+\small +1-555-0100 $|$ \href{mailto:alex.morgan@example.com}{alex.morgan@example.com} $|$
+\href{https://linkedin.com/in/alex-morgan-example/}{LinkedIn} $|$
+\href{https://github.com/alex-morgan-example}{GitHub}
+\end{center}
+
+\section{Summary}
+\small{Software Engineer with 3+ years of experience building production backend systems, APIs, integrations, and AI-enabled features using Node.js, TypeScript, and NestJS. Experienced in debugging production issues across Redis, background queues, SMS and OTP integrations, database performance, schema migrations, and Shopify data sync. Works across backend services and React-based product screens, with hands-on exposure to LLM-powered automation in customer rewards workflows. Strong in investigating failures end-to-end, picking up unfamiliar systems quickly, and making services more reliable through practical engineering.}
+
+\section{Technical Skills}
+\begin{itemize}[leftmargin=.15in,label={}]
+\small{\item{
+\textbf{Languages:} JavaScript, TypeScript, SQL, Python, Java, C++\\
+\textbf{Frontend:} React.js, Next.js, HTML5, CSS3, API integration\\
+\textbf{Backend:} Node.js, NestJS, Express.js, REST APIs, GraphQL, microservices\\
+\textbf{Databases \& Caching:} PostgreSQL, MySQL, MongoDB, Redis, indexing, query optimization\\
+\textbf{Messaging \& Systems:} BullMQ, asynchronous processing, event-driven workflows, retries, idempotency, failure recovery\\
+\textbf{AI / GenAI:} LLM integration, AI-assisted workflows, content summarization, intelligent automation; exploring RAG and AI agents\\
+\textbf{Cloud \& Delivery:} AWS (EC2, RDS, S3, Lambda), Docker, Kubernetes, Jenkins, CI/CD\\
+\textbf{Engineering:} System design, distributed systems, concurrency, networking, observability, production debugging
+}}
+\end{itemize}
+
+\section{Experience}
+\begin{itemize}[leftmargin=.15in,label={}]
+\subheading{Senior Software Engineer}{June 2022 -- Present}{Northwind Commerce Pvt. Ltd.}{Bengaluru, India}
+\begin{itemize}[leftmargin=.18in]
+\itemx{Build and maintain production services using Node.js, TypeScript, and NestJS for retail rewards, customer engagement, and online store platforms.}
+\itemx{Design REST and GraphQL APIs, shared service modules, data models, and partner integrations for revenue-critical workflows.}
+\itemx{Develop React-based product screens and connect customer-facing flows to authenticated backend APIs.}
+\itemx{Build background workflows using queues, retries, and failure handling so slow or flaky partner services do not hold up incoming requests.}
+\itemx{Improve database access and API response times through SQL tuning, indexing, Redis caching, and leaner data-access patterns.}
+\itemx{Contribute to configurable, multi-tenant backend modules that serve different customer setups without copying core logic.}
+\itemx{Integrate Shopify APIs, payment gateways, SMS and OTP providers, voice platforms, and other partner services.}
+\itemx{Implement LLM-enabled workflows for rewards-platform automation, including AI-assisted review and content summarization.}
+\itemx{Work on Docker, AWS, Jenkins, and Kubernetes pipelines; investigate incidents across queues, Redis, databases, and partner integrations.}
+\end{itemize}
+\end{itemize}
+
+\section{Production Challenges}
+\begin{itemize}[leftmargin=.18in]
+\itemx{\textbf{Redis Cluster key-slot errors:} Traced \texttt{CROSSSLOT} failures in multi-key commands back to key naming and Cluster slot rules; proposed hash-tag-based key names for commands that must touch related keys in one slot.}
+\itemx{\textbf{Stuck background jobs:} Investigated queue incidents across job state, worker health, Redis connectivity, and retry settings to tell enqueue problems apart from failures inside workers.}
+\itemx{\textbf{Unreliable OTP delivery:} Debugged login flows across input validation, OTP expiry and state in Redis, queue processing, environment settings, and provider responses to separate our bugs from provider outages.}
+\itemx{\textbf{Slow reporting queries:} Studied query plans and existing indexes, then rewrote query patterns and added indexes to cut execution time and avoid unnecessary database work.}
+\itemx{\textbf{Partial data migration:} Compared source and target schemas and table lists after some tables were skipped; checked that the migration was complete instead of trusting only the tool's exit status.}
+\itemx{\textbf{Shopify webhook reliability:} Added failure logging and replay workflows for sync events, handling retries and duplicate webhook deliveries.}
+\itemx{\textbf{Concurrent coupon allocation:} Worked with Redis-backed counters and per-campaign limits, where parallel requests need careful coordination so a campaign never hands out more than its budget.}
+\itemx{\textbf{Retries and duplicate events:} Planned for duplicate delivery and repeated processing in queue and webhook flows; used idempotency keys and state checks to stop the same business action from running twice.}
+\itemx{\textbf{Partner service outages:} Built and maintained background integration workflows with retries and failure handling so short provider outages can be investigated and recovered without blocking customer requests.}
+\itemx{\textbf{LLM output reliability:} Added LLM-powered automation to rewards workflows; validate and handle model responses at the service boundary before using them in downstream business logic.}
+\end{itemize}
+
+\section{Selected Projects}
+\begin{itemize}[leftmargin=.15in,label={}]
+\project{Rewards Platform -- LLM / GenAI Automation}{Node.js, TypeScript, NestJS, LLM integration}
+\begin{itemize}[leftmargin=.18in]
+\itemx{Implemented LLM-enabled workflows in a rewards platform to automate selected content review and summarization tasks.}
+\itemx{Plugged AI processing into backend workflows while keeping application services in charge of orchestration and business rules.}
+\itemx{Planned failure handling and operational fit when adding AI-assisted processing to existing workflows.}
+\end{itemize}
+\project{FleetTrack -- Delivery Fleet Management}{Node.js, MySQL, Redis, Docker, Firebase}
+\begin{itemize}[leftmargin=.18in]
+\itemx{Built backend features for a delivery company's fleet scheduling and daily operations workflows.}
+\itemx{Tuned SQL queries and indexing strategies to speed up database execution.}
+\itemx{Implemented secure data exchange between services using public-key cryptography.}
+\end{itemize}
+\project{FieldPoints -- Retailer Rewards \& Sales App}{Node.js, TypeScript, NestJS, Redis, AWS, Kubernetes}
+\begin{itemize}[leftmargin=.18in]
+\itemx{Built backend modules for rewards and sales-tracking workflows used by field agents and shop owners.}
+\itemx{Developed OTP- and voice-call-based login flows integrated with SMS gateways and verification steps.}
+\itemx{Created shared modules and configurable workflows for multi-customer deployments; contributed to Redis-backed points-processing logic.}
+\end{itemize}
+\project{ShopBridge -- Shopify-Connected Marketplace}{Node.js, TypeScript, Shopify APIs, Redis, AWS}
+\begin{itemize}[leftmargin=.18in]
+\itemx{Built backend integrations that sync products, variants, inventory, and orders between the marketplace and Shopify stores.}
+\itemx{Developed webhook-processing workflows with failure logging and replay paths for events that did not succeed.}
+\end{itemize}
+\end{itemize}
+
+\section{Current Learning}
+\small{Going deeper into React and full-stack architecture; RAG, embeddings, vector search, and AI-agent patterns; database internals and query execution; distributed systems, concurrency, networking, and production observability. Improving system design by studying failure modes, scalability, reliability, and architectural trade-offs.}
+
+\section{Education}
+\begin{itemize}[leftmargin=.15in,label={}]
+\subheading{Example Institute of Technology (EIT)}{Karnataka, India}{Bachelor of Technology in Computer Science Engineering}{2018 -- 2022}
+\end{itemize}
+\end{document}

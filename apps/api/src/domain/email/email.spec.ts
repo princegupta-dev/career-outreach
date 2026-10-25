@@ -69,7 +69,7 @@ describe('template email writer', () => {
     expect(draft.body).toContain('Acme');
     expect(draft.body).toContain('Senior Backend Engineer');
     expect(draft.body).toMatch(/resume/);
-    expect(draft.body).toMatch(/Best,\nPrince Gupta/);
+    expect(draft.body).toMatch(/Best,\nAlex Morgan/);
   });
 
   it('does not claim Kafka experience', () => {

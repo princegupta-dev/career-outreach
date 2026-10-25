@@ -3,24 +3,24 @@ import * as path from 'path';
 import { documentFromData, expectedTexts, inlineText, parseInline, parseLatexResume, ResumeDocumentError } from './resume-document';
 import { resumeDataSchema } from './types';
 
-const SOURCE = fs.readFileSync(path.resolve(__dirname, '../../../../../candidate/resume.tex'), 'utf8');
+const SOURCE = fs.readFileSync(path.resolve(__dirname, '../../../../../candidate/resume.example.tex'), 'utf8');
 
 describe('LaTeX resume → document', () => {
   const doc = parseLatexResume(SOURCE);
 
-  it('reads every section of the real resume, in order, with nothing dropped', () => {
-    expect(doc.name).toBe('Prince Gupta');
+  it('reads every section of the sample resume, in order, with nothing dropped', () => {
+    expect(doc.name).toBe('Alex Morgan');
     expect(doc.sections.map((s) => s.title)).toEqual(['Summary', 'Technical Skills', 'Experience', 'Production Challenges', 'Selected Projects', 'Current Learning', 'Education']);
-    expect(inlineText(doc.header[0])).toBe('Full-Stack Software Engineer | Backend Systems & GenAI | Gurgaon, India');
-    expect(inlineText(doc.header[1])).toBe('+91-8059258639 | pg150704@gmail.com | LinkedIn | GitHub');
+    expect(inlineText(doc.header[0])).toBe('Full-Stack Software Engineer | Backend Systems & GenAI | Bengaluru, India');
+    expect(inlineText(doc.header[1])).toBe('+1-555-0100 | alex.morgan@example.com | LinkedIn | GitHub');
   });
 
   it('keeps links, skill rows, entries, projects and bullets as structured content', () => {
     const links = doc.header[1].filter((r) => r.href).map((r) => [r.text, r.href]);
     expect(links).toEqual([
-      ['pg150704@gmail.com', 'mailto:pg150704@gmail.com'],
-      ['LinkedIn', 'https://linkedin.com/in/princegupta123/'],
-      ['GitHub', 'https://github.com/princegupta-dev'],
+      ['alex.morgan@example.com', 'mailto:alex.morgan@example.com'],
+      ['LinkedIn', 'https://linkedin.com/in/alex-morgan-example/'],
+      ['GitHub', 'https://github.com/alex-morgan-example'],
     ]);
     const by = (t: string) => doc.sections.find((s) => s.title === t)!.blocks;
     const skills = by('Technical Skills')[0];
@@ -28,20 +28,20 @@ describe('LaTeX resume → document', () => {
     const exp = by('Experience')[0];
     expect(exp).toMatchObject({ type: 'entry' });
     if (exp.type === 'entry') {
-      expect([inlineText(exp.title), inlineText(exp.aside), inlineText(exp.subtitle), inlineText(exp.subAside)]).toEqual(['Senior Software Engineer', 'May 2023 – Present', 'Tech Almond Solutions Pvt. Ltd. (Almonds.ai)', 'Gurgaon, India']);
+      expect([inlineText(exp.title), inlineText(exp.aside), inlineText(exp.subtitle), inlineText(exp.subAside)]).toEqual(['Senior Software Engineer', 'June 2022 – Present', 'Northwind Commerce Pvt. Ltd.', 'Bengaluru, India']);
       expect(exp.bullets).toHaveLength(9);
     }
     const challenges = by('Production Challenges')[0];
     expect(challenges.type === 'bullets' && challenges.items).toHaveLength(10);
     const projects = by('Selected Projects');
     expect(projects.map((p) => p.type === 'project' && [inlineText(p.title), p.bullets.length])).toEqual([
-      ['Loyalty Platform – LLM / GenAI Automation', 3],
-      ['HCCB DMC – Driver Management System', 3],
-      ['GPI – Loyalty & Productivity Platform', 3],
-      ['Fills – Shopify-Integrated Marketplace', 2],
+      ['Rewards Platform – LLM / GenAI Automation', 3],
+      ['FleetTrack – Delivery Fleet Management', 3],
+      ['FieldPoints – Retailer Rewards & Sales App', 3],
+      ['ShopBridge – Shopify-Connected Marketplace', 2],
     ]);
     const edu = by('Education')[0];
-    expect(edu.type === 'entry' && [inlineText(edu.title), inlineText(edu.aside), inlineText(edu.subAside)]).toEqual(['Indira Gandhi University (IGU)', 'Haryana, India', '2019 – 2023']);
+    expect(edu.type === 'entry' && [inlineText(edu.title), inlineText(edu.aside), inlineText(edu.subAside)]).toEqual(['Example Institute of Technology (EIT)', 'Karnataka, India', '2018 – 2022']);
   });
 
   it('preserves inline styling: bold lead-ins, monospace terms, escaped characters', () => {
@@ -63,7 +63,7 @@ describe('LaTeX resume → document', () => {
 
   it('lists every piece of text the finished PDF must contain', () => {
     const texts = expectedTexts(doc);
-    expect(texts).toEqual(expect.arrayContaining(['Prince Gupta', 'Production Challenges']));
+    expect(texts).toEqual(expect.arrayContaining(['Alex Morgan', 'Production Challenges']));
     expect(texts.filter((t) => t.length > 40).length).toBeGreaterThan(30);
   });
 

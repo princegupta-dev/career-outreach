@@ -3,7 +3,7 @@ import { parseResumeText } from './parse-text';
 /** Line shapes seen in real PDF text: glued markers, wrapped bullets, glued dates, ALL-CAPS headings. */
 const PDF_TEXT = `Prince Gupta
 Backend Engineer | Gurgaon, India
-+91-8059258639 | pg@example.com
++1-555-0100 | pg@example.com
 SUMMARY
 Software Engineer with 3+ years of experience building production backend systems and
 AI-enabled workflows.
@@ -26,7 +26,7 @@ GPI – Loyalty Platform | Node.js, Redis
 CURRENT LEARNING
 Deepening practical knowledge of RAG and embeddings.
 EDUCATION
-Indira Gandhi University (IGU)
+Example Institute of Technology (EIT)
 Bachelor of Technology in Computer Science Engineering2019 – 2023`;
 
 describe('parseResumeText', () => {
@@ -52,7 +52,7 @@ describe('parseResumeText', () => {
   });
 
   it('reads education without the glued date range', () => {
-    expect(d.education[0]).toMatchObject({ degree: 'Bachelor of Technology in Computer Science Engineering', institution: 'Indira Gandhi University (IGU)', year: '2023' });
+    expect(d.education[0]).toMatchObject({ degree: 'Bachelor of Technology in Computer Science Engineering', institution: 'Example Institute of Technology (EIT)', year: '2023' });
   });
 
   it('still reads "- " bullets and does not treat hyphenated words as bullets', () => {

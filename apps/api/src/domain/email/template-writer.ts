@@ -4,7 +4,7 @@ import { getSkill } from '../skills/taxonomy';
 import { countWords, firstName, GenerateEmailInput } from './voice';
 
 /**
- * Deterministic, zero-cost email writer in Prince's voice. Used when no LLM is
+ * Deterministic, zero-cost email writer in the candidate's voice. Used when no LLM is
  * configured, and as a safe fallback if the LLM output fails validation.
  * Variation comes from a seed so two companies don't receive identical emails.
  */

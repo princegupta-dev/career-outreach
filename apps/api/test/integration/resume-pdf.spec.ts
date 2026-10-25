@@ -9,7 +9,7 @@ import { BACKEND_JD, createContext, createUser, flushRedis, pdfBrowserAvailable,
 
 jest.setTimeout(120_000);
 
-const TEX = fs.readFileSync(path.resolve(__dirname, '../../../../candidate/resume.tex'));
+const TEX = fs.readFileSync(path.resolve(__dirname, '../../../../candidate/resume.example.tex'));
 const SHORT_JD = 'Backend Engineer needed. Node.js, TypeScript, PostgreSQL. 3+ years building REST APIs for our product.';
 const pdfText = async (b: Buffer | Uint8Array) => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -74,7 +74,7 @@ describe('Resume tailoring → PDF (integration)', () => {
       const parsed = await pdfText(file.buffer);
       expect(parsed.numpages).toBeLessThanOrEqual(2);
       expect(parsed.text.replace(/\s+/g, ' ')).toContain('Redis Cluster key-slot errors'); // every section survives tailoring
-      expect(parsed.text.replace(/\s+/g, ' ')).toContain('Indira Gandhi University');
+      expect(parsed.text.replace(/\s+/g, ' ')).toContain('Example Institute of Technology');
       expect(file.filename).toMatch(/_Resume\.pdf$/);
     }
     expect(a.version.id).not.toBe(b.version.id);

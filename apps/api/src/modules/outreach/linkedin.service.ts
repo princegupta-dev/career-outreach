@@ -78,7 +78,7 @@ export class LinkedInService {
     }
     const warnings: string[] = [];
     if (!note) {
-      note = buildTemplateNote(input);
+      note = buildTemplateNote(input, profile.name);
       fallback = this.ai.usesLlm;
       if (problems) warnings.push(`The AI note was rejected (${problems.join('; ')}), so a plain note is shown.`);
     }

@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parseProfileMarkdown, CandidateProfile } from '../profile/profile';
 
-export const PROFILE_PATH = path.resolve(__dirname, '../../../../../candidate/candidate-profile.md');
+export const PROFILE_PATH = path.resolve(__dirname, '../../../../../candidate/candidate-profile.example.md');
 
 export function loadProfile(now = new Date('2026-10-06T00:00:00Z')): CandidateProfile {
   return parseProfileMarkdown(fs.readFileSync(PROFILE_PATH, 'utf8'), now);

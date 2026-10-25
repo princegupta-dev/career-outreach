@@ -22,13 +22,14 @@ export const linkedinNoteSchema = z.object({ note: z.string() });
 const list = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
 /** Deterministic note: only the person's real overlapping skills, no company claims. Always fits the limit. */
-export function buildTemplateNote(input: LinkedInNoteInput): string {
+export function buildTemplateNote(input: LinkedInNoteInput, senderName: string): string {
+  const me = firstName(senderName);
   const hi = input.recipientName ? `Hi ${firstName(input.recipientName)},` : 'Hi,';
   const skills = list(input.overlapSkills.slice(0, 3));
   const tries = [
-    `${hi} I'm Prince, a backend engineer${skills ? ` working with ${skills}` : ''}. I came across the ${input.jobTitle} role at ${input.companyName} and it looks like a close match for my experience. I'd love to connect and learn more about the team.`,
-    `${hi} I'm Prince, a backend engineer${skills ? ` (${skills})` : ''}. The ${input.jobTitle} role at ${input.companyName} looks like a good fit. I'd love to connect.`,
-    `${hi} I'm Prince, a backend engineer interested in the ${input.jobTitle} role at ${input.companyName}. I'd love to connect.`,
+    `${hi} I'm ${me}, a backend engineer${skills ? ` working with ${skills}` : ''}. I came across the ${input.jobTitle} role at ${input.companyName} and it looks like a close match for my experience. I'd love to connect and learn more about the team.`,
+    `${hi} I'm ${me}, a backend engineer${skills ? ` (${skills})` : ''}. The ${input.jobTitle} role at ${input.companyName} looks like a good fit. I'd love to connect.`,
+    `${hi} I'm ${me}, a backend engineer interested in the ${input.jobTitle} role at ${input.companyName}. I'd love to connect.`,
   ];
   return tries.find((t) => t.length <= LINKEDIN_NOTE_TARGET) ?? tries[tries.length - 1].slice(0, LINKEDIN_NOTE_LIMIT);
 }

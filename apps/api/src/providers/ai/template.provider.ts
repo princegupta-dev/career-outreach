@@ -63,6 +63,6 @@ export class TemplateProvider implements AIProvider {
   }
 
   async generateLinkedInNote(req: GenerateLinkedInNoteInput): Promise<AiResult<{ note: string }>> {
-    return { output: { note: buildTemplateNote(req.input) }, usage: USAGE };
+    return { output: { note: buildTemplateNote(req.input, req.profile.name) }, usage: USAGE };
   }
 }

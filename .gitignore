@@ -11,3 +11,8 @@ apps/api/storage/
 next-env.d.ts
 *.tsbuildinfo
 dump.rdb
+
+# Your personal candidate files stay local (samples: *.example.*)
+candidate/candidate-profile.md
+candidate/resume.tex
+candidate/.candidate-profile.*.tmp

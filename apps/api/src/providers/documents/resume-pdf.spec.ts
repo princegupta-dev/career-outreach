@@ -8,7 +8,7 @@ import { ChromiumPdfRenderer, ResumeRenderError, validateResumePdf } from './chr
 
 jest.setTimeout(120_000);
 
-const SOURCE = fs.readFileSync(path.resolve(__dirname, '../../../../../candidate/resume.tex'), 'utf8');
+const SOURCE = fs.readFileSync(path.resolve(__dirname, '../../../../../candidate/resume.example.tex'), 'utf8');
 const SHORT_JD = 'Senior Backend Engineer. Node.js, TypeScript and PostgreSQL. 4+ years experience building REST APIs.';
 const LONG_JD = `We are hiring a Senior Backend Engineer to own services that power our payments platform. ${'You will design resilient distributed systems, build REST and GraphQL APIs with Node.js, TypeScript and NestJS, run PostgreSQL and Redis in production, use BullMQ queues, Kafka, AWS, Docker and Kubernetes, and debug incidents end to end. '.repeat(12)}
 Requirements: 5+ years building backend systems; strong SQL; idempotency; observability; CI/CD; system design; microservices; event-driven architecture.`;
@@ -32,7 +32,7 @@ describe('resume PDF (real Chromium)', () => {
       if (hasBrowser) await fn();
     });
 
-  real('builds your real resume as a valid two-page PDF with selectable text and every section', async () => {
+  real('builds the sample resume as a valid two-page PDF with selectable text and every section', async () => {
     const doc = parseLatexResume(SOURCE);
     const r = await renderer.renderResume(doc);
     expect(r.pdf.subarray(0, 5).toString()).toBe('%PDF-');
@@ -42,7 +42,7 @@ describe('resume PDF (real Chromium)', () => {
     const flat = r.text.replace(/\s+/g, '').toLowerCase();
     for (const s of doc.sections) expect(flat).toContain(s.title.replace(/\s+/g, '').toLowerCase());
     expect(r.text.replace(/\s+/g, ' ')).toContain('Redis Cluster key-slot errors');
-    expect(r.text.replace(/\s+/g, ' ')).toContain('pg150704@gmail.com');
+    expect(r.text.replace(/\s+/g, ' ')).toContain('alex.morgan@example.com');
   });
 
   real('works for both a short and a long job description, never dropping or clipping content', async () => {

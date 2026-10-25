@@ -1,13 +1,20 @@
 # Your candidate files
 
-This folder is the **only place the app learns facts about you**. The files here right now belong to
-the author (Prince Gupta) and work as a complete example. **Replace both with your own before you
-connect Gmail** — otherwise the app will score jobs and write emails as someone else.
+This folder is the **only place the app learns facts about you**. The repo ships two **samples**
+for a fictional person, "Alex Morgan". Copy them and replace everything with your own facts:
 
-| File | What it is | Required? |
-| --- | --- | --- |
-| `candidate-profile.md` | Your profile: target roles, locations, skills, domains, projects | Yes |
-| `resume.tex` | Your resume **content** (sections, roles, bullets, skills), tailored per job | No — without it the resume is built from the profile |
+```bash
+cp candidate/candidate-profile.example.md candidate/candidate-profile.md
+cp candidate/resume.example.tex candidate/resume.tex
+```
+
+| Your file | Sample | What it is | Required? |
+| --- | --- | --- | --- |
+| `candidate-profile.md` | `candidate-profile.example.md` | Your profile: target roles, locations, skills, domains, projects | Yes — created from the sample on first start if missing |
+| `resume.tex` | `resume.example.tex` | Your resume **content** (sections, roles, bullets, skills), tailored per job | No — without it the resume is built from the profile |
+
+Your two files are in `.gitignore`, so they stay on your machine. The samples are also what the
+automated tests run against.
 
 Both are mounted into Docker (`./candidate:/app/candidate`), so edits apply without a rebuild. You can
 also edit the profile in the app (**Profile** page) and upload a `.tex` on the **Resume** page.
@@ -41,5 +48,4 @@ The file is YAML between the two `---` lines, followed by free-form Markdown not
 After changing either file, open **Profile** in the app to confirm it parsed, then click
 **Find jobs now** on the dashboard.
 
-> **Privacy tip:** if you fork this repo publicly, don't commit your phone number or personal email.
-> Keep your real files local (for example with `git update-index --skip-worktree candidate/*`).
+> **Privacy:** never rename your real files to `*.example.*` — only the samples are committed.

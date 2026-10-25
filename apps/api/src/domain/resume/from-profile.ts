@@ -24,7 +24,7 @@ export function groupSkills(skills: string[]): Array<{ category: string; items: 
 
 /**
  * Seed a master resume from the candidate profile. Bullets are restatements of
- * facts written in the profile — nothing is added. Prince should refine them
+ * facts written in the profile — nothing is added. The candidate should refine them
  * (and add his employer + dates) on the Resume page.
  */
 export function resumeFromProfile(p: CandidateProfile): ResumeData {

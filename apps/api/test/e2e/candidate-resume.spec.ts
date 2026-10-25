@@ -10,7 +10,7 @@ import { BACKEND_JD, createHttpApp, flushRedis, pdfBrowserAvailable, resetDataba
  * and tailored versions keep its design: same preamble and macros, only re-ordered content.
  */
 describe('Candidate LaTeX resume from candidate/resume.tex (e2e)', () => {
-  const SOURCE = fs.readFileSync(path.resolve(__dirname, '../../../../candidate/resume.tex'), 'utf8');
+  const SOURCE = fs.readFileSync(path.resolve(__dirname, '../../../../candidate/resume.example.tex'), 'utf8');
   const target = path.join(path.dirname(process.env.CANDIDATE_PROFILE_PATH!), 'resume.tex');
   let app: INestApplication;
   let prisma: PrismaService;
@@ -22,7 +22,7 @@ describe('Candidate LaTeX resume from candidate/resume.tex (e2e)', () => {
   const get = (p: string) => agent.get(`/api${p}`);
 
   beforeAll(async () => {
-    fs.copyFileSync(path.resolve(__dirname, '../../../../candidate/resume.tex'), target);
+    fs.copyFileSync(path.resolve(__dirname, '../../../../candidate/resume.example.tex'), target);
     app = await createHttpApp();
     prisma = app.get(PrismaService);
     hasBrowser = await pdfBrowserAvailable();

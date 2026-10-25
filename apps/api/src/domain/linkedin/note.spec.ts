@@ -12,18 +12,19 @@ const input: LinkedInNoteInput = {
 
 describe('buildTemplateNote', () => {
   it('fits the limit, greets by first name and names only real skills', () => {
-    const n = buildTemplateNote(input);
+    const n = buildTemplateNote(input, 'Alex Morgan');
     expect(n.length).toBeLessThanOrEqual(LINKEDIN_NOTE_LIMIT);
     expect(n).toMatch(/^Hi Asha,/);
+    expect(n).toContain("I'm Alex,"); // the sender's own first name, from their profile
     expect(n).toContain('Acme Payments');
     expect(checkLinkedInNote(n, input.overlapSkills, `${input.jobTitle} ${input.companyName}`, input.companyName).ok).toBe(true);
   });
   it('still fits with very long names', () => {
-    const n = buildTemplateNote({ ...input, jobTitle: 'Principal Staff Software Engineer, Platform Reliability and Developer Productivity', companyName: 'A Very Long Company Name Incorporated Worldwide Holdings' });
+    const n = buildTemplateNote({ ...input, jobTitle: 'Principal Staff Software Engineer, Platform Reliability and Developer Productivity', companyName: 'A Very Long Company Name Incorporated Worldwide Holdings' }, 'Alex Morgan');
     expect(n.length).toBeLessThanOrEqual(LINKEDIN_NOTE_LIMIT);
   });
   it('works without a contact', () => {
-    expect(buildTemplateNote({ ...input, recipientName: null })).toMatch(/^Hi, /);
+    expect(buildTemplateNote({ ...input, recipientName: null }, 'Alex Morgan')).toMatch(/^Hi, /);
   });
 });
 

@@ -42,12 +42,12 @@ title that is not in your profile. Banned phrases ("I hope this email finds you 
 
 ## Screenshots
 
-| Jobs found today | One job: score, contact, tailored PDF, email |
-| --- | --- |
+| Jobs found today                   | One job: score, contact, tailored PDF, email   |
+| ---------------------------------- | ---------------------------------------------- |
 | ![Jobs](docs/screenshots/jobs.png) | ![Job detail](docs/screenshots/job-detail.png) |
 
-| Outreach pipeline | Resume |
-| --- | --- |
+| Outreach pipeline                          | Resume                                 |
+| ------------------------------------------ | -------------------------------------- |
 | ![Outreach](docs/screenshots/outreach.png) | ![Resume](docs/screenshots/resume.png) |
 
 ## Responsible use
@@ -96,10 +96,19 @@ openssl rand -hex 32   # → ENCRYPTION_KEY
 
 ### 3. Put in your own profile and resume
 
-The `candidate/` folder holds **the author's** profile and resume as an example. Replace them:
+The `candidate/` folder ships with **samples** for a fictional person ("Alex Morgan"). Copy them
+and replace the contents with your own facts:
 
-- `candidate/candidate-profile.md` — your roles, locations and skills (**required**)
-- `candidate/resume.tex` — your resume content (optional; delete it to build the resume from your profile)
+```bash
+cp candidate/candidate-profile.example.md candidate/candidate-profile.md   # required
+cp candidate/resume.example.tex candidate/resume.tex                       # optional
+```
+
+- `candidate-profile.md` — your roles, locations and skills. If you skip this, the app creates it
+  from the sample on first start (and logs a warning) — replace it before sending anything.
+- `resume.tex` — your resume content. Without it, the resume is built from your profile.
+
+Both files are in `.gitignore`, so your personal details are never committed.
 
 See [candidate/README.md](candidate/README.md) for what each field does.
 
@@ -114,7 +123,7 @@ The first build takes several minutes. When the web container is ready, open
 is a single-user app).
 
 The first job search starts right away. Within a couple of minutes the dashboard shows
-*"We found X relevant jobs for you today."*
+_"We found X relevant jobs for you today."_
 
 ### 5. Daily use
 
@@ -125,14 +134,14 @@ tracking it). Details are under [Preparing an application](#preparing-an-applica
 
 ### 6. Optional upgrades
 
-| Want | Do this |
-| --- | --- |
-| Real emails via Gmail | Follow [Gmail setup](#gmail) below, then `EMAIL_PROVIDER=gmail` |
-| Free local AI | Install [Ollama](https://ollama.com), `ollama pull qwen2.5:7b`, then `AI_PROVIDER=ollama` and `OLLAMA_MODEL=qwen2.5:7b` (see [AI and cost](#ai-and-cost)) |
-| Best analysis & writing with Claude | `AI_PROVIDER=anthropic` and `ANTHROPIC_API_KEY=...` ([get a key](https://console.anthropic.com)) |
-| More contacts found | `HUNTER_API_KEY=...` ([Hunter.io](https://hunter.io), free tier) |
-| A4 resumes | `RESUME_PAGE_SIZE=A4` |
-| Different search time | `DISCOVERY_CRON` (default `30 1 * * *` = 07:00 IST; container time is UTC) |
+| Want                                | Do this                                                                                                                                                   |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Real emails via Gmail               | Follow [Gmail setup](#gmail) below, then `EMAIL_PROVIDER=gmail`                                                                                           |
+| Free local AI                       | Install [Ollama](https://ollama.com), `ollama pull qwen2.5:7b`, then `AI_PROVIDER=ollama` and `OLLAMA_MODEL=qwen2.5:7b` (see [AI and cost](#ai-and-cost)) |
+| Best analysis & writing with Claude | `AI_PROVIDER=anthropic` and `ANTHROPIC_API_KEY=...` ([get a key](https://console.anthropic.com))                                                          |
+| More contacts found                 | `HUNTER_API_KEY=...` ([Hunter.io](https://hunter.io), free tier)                                                                                          |
+| A4 resumes                          | `RESUME_PAGE_SIZE=A4`                                                                                                                                     |
+| Different search time               | `DISCOVERY_CRON` (default `30 1 * * *` = 07:00 IST; container time is UTC)                                                                                |
 
 After editing `.env`, restart: `docker compose up -d --force-recreate api worker`.
 Check the AI connection in **Settings → Test AI connection**.
@@ -158,7 +167,7 @@ Ports (localhost only): web `3000`, API `4000`, Postgres `5433`, Redis `6380`.
   run `npx playwright install chromium` first.
 - **`.tex` upload rejected** — the reader explains what it couldn't parse; see
   [Your resume](#your-resume) for the supported commands.
-- **Gmail says "Access blocked"** — add your Gmail address under *Test users* (step 2 of
+- **Gmail says "Access blocked"** — add your Gmail address under _Test users_ (step 2 of
   [Gmail](#gmail)).
 - **Profile errors** — open the Profile page; it shows exactly which field is invalid.
 
@@ -171,19 +180,19 @@ recommended), shows salary, experience, location eligibility and company size (a
 "Unknown"), and has one main button: **Prepare my application**. Score breakdowns, contacts, the resume
 and the email editor are under **More details and tools**.
 
-*Prepare* runs five steps in the worker (so the worker must be running) and saves progress, so a refresh
+_Prepare_ runs five steps in the worker (so the worker must be running) and saves progress, so a refresh
 loses nothing: check the job → research the company → find a contact → tailor the resume → draft the
-outreach. Each step shows *Not started / In progress / Completed / Needs your input / Failed — retry
-available*; a retry redoes only what failed. At the end you get one summary and one **approve** button.
+outreach. Each step shows _Not started / In progress / Completed / Needs your input / Failed — retry
+available_; a retry redoes only what failed. At the end you get one summary and one **approve** button.
 
 - Nothing is sent or submitted before you approve. Approving an email queues it (existing limits and
   safeguards apply); with no contact email you get an application checklist, and approving only records it.
-- A posting is "listed" only when its company board confirms it; otherwise it says *could not be verified*.
+- A posting is "listed" only when its company board confirms it; otherwise it says _could not be verified_.
 - Emails are never guessed. A found-but-unverified address waits for your confirmation.
 - Resume PDFs need a browser engine (`npx playwright install chromium`; included in Docker). If it is
   missing the resume step fails with that instruction; install it and retry, or **Continue without a tailored resume**.
 - Lifecycle: Discovered → Shortlisted → Preparing → Ready for review → Approved → Applied → Replied →
-  Interview → Offer/Rejected, plus Skipped and Archived. *Applied* means an email was actually sent, or you
+  Interview → Offer/Rejected, plus Skipped and Archived. _Applied_ means an email was actually sent, or you
   clicked **I applied** after applying on the company's site.
 
 ## Local development (without Docker for the apps)
@@ -215,14 +224,14 @@ Redis (cache, locks, rate limits, queues) → headless Chromium (resume PDFs). N
 
 ## Job discovery
 
-Sources are seeded automatically on sign-up (Settings → *Job discovery sources* to disable or add):
+Sources are seeded automatically on sign-up (Settings → _Job discovery sources_ to disable or add):
 
-| Source | How | Notes |
-| --- | --- | --- |
-| Hacker News "Who is hiring?" | Algolia public API | Startups; posters often publish their own email (stored as a verified contact) |
-| We Work Remotely | public RSS | company website extracted → contact lookup |
-| Remotive, Himalayas, Jobicy, Remote OK, Arbeitnow | public JSON APIs | remote roles; attribution links kept |
-| ~40 company boards | Greenhouse / Ashby / Lever public job-board APIs | verified to list India-based or globally-remote backend roles (Okta, MongoDB, Stripe, Coinbase, Databricks, GitLab, Sarvam AI, Plane, Supabase, ClickHouse, …) |
+| Source                                            | How                                              | Notes                                                                                                                                                          |
+| ------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hacker News "Who is hiring?"                      | Algolia public API                               | Startups; posters often publish their own email (stored as a verified contact)                                                                                 |
+| We Work Remotely                                  | public RSS                                       | company website extracted → contact lookup                                                                                                                     |
+| Remotive, Himalayas, Jobicy, Remote OK, Arbeitnow | public JSON APIs                                 | remote roles; attribution links kept                                                                                                                           |
+| ~40 company boards                                | Greenhouse / Ashby / Lever public job-board APIs | verified to list India-based or globally-remote backend roles (Okta, MongoDB, Stripe, Coinbase, Databricks, GitLab, Sarvam AI, Plane, Supabase, ClickHouse, …) |
 
 Add any company: Settings → board token (`boards.greenhouse.io/<token>`, `jobs.ashbyhq.com/<token>`,
 `jobs.lever.co/<token>`). Single jobs can still be added by URL or pasted JD (optional).
@@ -239,7 +248,7 @@ Schedule: daily at 07:00 IST (`DISCOVERY_CRON=30 1 * * *`, container time is UTC
 worker start, on sign-up, and on **Find jobs now**.
 
 > **Network note.** Some networks (corporate firewalls, antivirus "HTTPS scanning") intercept job
-> sites. The app detects this and shows *"Blocked by your network …"* on the affected sources
+> sites. The app detects this and shows _"Blocked by your network …"_ on the affected sources
 > instead of failing silently. On the network this was built on, a Sophos firewall intercepted
 > Remotive, Himalayas, Jobicy, Remote OK, Arbeitnow and Lever; HN, We Work Remotely, Greenhouse and
 > Ashby worked. Run it on a home network to use every source. Certificate checks are never disabled.
@@ -248,12 +257,12 @@ worker start, on sign-up, and on **Find jobs now**.
 
 - `candidate/resume.tex` (next to the profile) is your resume's **content** and is picked up automatically
   the first time the resume is used. Uploading a `.tex` on the Resume page replaces it; after
-  *Remove LaTeX* the file is not re-imported.
+  _Remove LaTeX_ the file is not re-imported.
 - **The PDF is drawn from a built-in template, not by running LaTeX.** The template is one clean,
   ATS-friendly column (real selectable text; no icons, images, tables or skill bars) that mirrors the
   usual layout: centered name and contact line, Summary, Technical Skills, Experience, Production
   Challenges, Projects, Education. Letter size by default; set `RESUME_PAGE_SIZE=A4` for A4. Your own
-  LaTeX *design* (fonts, margins, packages) is not reproduced — only the content, in order.
+  LaTeX _design_ (fonts, margins, packages) is not reproduced — only the content, in order.
 - The `.tex` reader understands `\section`, `\subheading`/`\resumeSubheading`, `\project`,
   `\itemx`/`\resumeItem`, `\item`, `\textbf`, `\textit`/`\emph`, `\texttt`, `\href` and the usual escapes. A
   file it cannot read is rejected at upload with an explanation instead of producing a thin resume.
@@ -262,9 +271,9 @@ worker start, on sign-up, and on **Find jobs now**.
      first),
   2. re-orders items inside comma-separated skills lines ("Languages: …"); groups in parentheses
      ("AWS (EC2, S3)") stay together,
-  3. with Claude enabled (optional): rephrases *plain-text* bullets toward the JD's wording — each rewrite
+  3. with Claude enabled (optional): rephrases _plain-text_ bullets toward the JD's wording — each rewrite
      must pass a truth guard (no new technologies, numbers, metrics or "led/owned/architected").
-  Nothing is added or removed, and your master resume is never modified by tailoring.
+     Nothing is added or removed, and your master resume is never modified by tailoring.
 - **Every PDF is checked before it is accepted:** it must be a real PDF with selectable text, contain your
   name, every section and every bullet (so nothing is clipped or dropped), have nothing wider than the
   page, and be at most 4 pages (it aims for 2 and tries a tighter layout once if needed). If the check
@@ -286,14 +295,14 @@ OAuth only — the app never asks for your Gmail password; tokens are AES-256-GC
    `http://localhost:3000/api/email/gmail/callback`.
 4. `.env`: `EMAIL_PROVIDER=gmail`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
    `GOOGLE_REDIRECT_URI`; restart (`docker compose up -d --force-recreate api worker`).
-5. Settings → **Connect Gmail** → on "Google hasn't verified this app" choose *Continue*.
+5. Settings → **Connect Gmail** → on "Google hasn't verified this app" choose _Continue_.
 
-In testing mode Google expires the connection after 7 days (reconnect, or *Publish app*).
+In testing mode Google expires the connection after 7 days (reconnect, or _Publish app_).
 
 **Drafts.** Every prepared email (and follow-up) is mirrored into Gmail Drafts with the tailored
-PDF attached and kept in sync with your edits. *Approve & send* sends that draft (after re-checking
+PDF attached and kept in sync with your edits. _Approve & send_ sends that draft (after re-checking
 daily limits, cooldowns, suppression list). If you send a draft yourself from Gmail, the next sync
-(every 10 min, or *Check for replies*) records it and schedules follow-ups. Cancelled follow-ups
+(every 10 min, or _Check for replies_) records it and schedules follow-ups. Cancelled follow-ups
 have their drafts deleted so they can't be sent by accident.
 
 ## Follow-ups and replies
@@ -344,7 +353,7 @@ See `.env.example`. Key ones: `DATABASE_URL`, `REDIS_URL`, `SESSION_SECRET`, `EN
 `DISCOVERY_CRON`, `EMAIL_SYNC_CRON`, `FOLLOWUP_CRON`, `CANDIDATE_PROFILE_PATH`.
 
 Sandbox mode (`EMAIL_PROVIDER=sandbox`, the default) keeps a local mailbox in Redis: nothing is
-sent, and sent emails get *Simulate reply / out-of-office / bounce* buttons.
+sent, and sent emails get _Simulate reply / out-of-office / bounce_ buttons.
 
 ## Database
 
@@ -383,7 +392,7 @@ correlation ids (tokens, cookies, passwords and email bodies redacted).
 ## Project layout
 
 ```
-candidate/candidate-profile.md   Canonical candidate profile
+candidate/                       Your profile + resume (git-ignored) and *.example.* samples
 apps/api/src/domain/             Pure logic: scoring, extraction, filters, LaTeX parse/tailor,
                                  truth guard, guardrails, follow-up schedule, state machine
 apps/api/src/providers/          Job feeds & boards, contacts, Gmail/sandbox, Claude/template AI,
