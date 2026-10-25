@@ -92,16 +92,16 @@ export class AnthropicProvider implements AIProvider {
   }
 
   async generateEmail(req: GenerateEmailRequest): Promise<AiResult<EmailDraft>> {
-    const r = await this.call(req.profile, emailPrompt(req.input, req.previousProblems), emailDraftSchema, 4000);
+    const r = await this.call(req.profile, emailPrompt(req.input, req.profile.name, req.previousProblems), emailDraftSchema, 4000);
     return { ...r, output: { ...r.output, provider: this.name } };
   }
 
   async generateFollowup(input: GenerateFollowupInput): Promise<AiResult<EmailDraft>> {
-    const r = await this.call(input.profile, followupPrompt(input), emailDraftSchema, 3000);
+    const r = await this.call(input.profile, followupPrompt({ ...input, candidateName: input.profile.name }), emailDraftSchema, 3000);
     return { ...r, output: { ...r.output, provider: this.name } };
   }
 
   generateLinkedInNote(req: GenerateLinkedInNoteInput): Promise<AiResult<{ note: string }>> {
-    return this.call(req.profile, linkedinNotePrompt(req.input, req.previousProblems), linkedinNoteSchema, 600);
+    return this.call(req.profile, linkedinNotePrompt(req.input, req.profile.name, req.previousProblems), linkedinNoteSchema, 600);
   }
 }

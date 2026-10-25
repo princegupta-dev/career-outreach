@@ -283,10 +283,13 @@ export class JobsService {
    */
   async criteriaFor(userId?: string): Promise<JobSearchCriteria & { allowRelocation: boolean }> {
     const profile = await this.profiles.get();
-    // Never exclude a stack the candidate actually has.
+    // Never exclude or flag a stack the candidate actually has, or a word from their own target roles
+    // (e.g. "Frontend Engineer" or "Staff Engineer" must not be filtered out by the defaults).
     const own = profile.strongSkills.map((x) => x.toLowerCase());
-    const exclude = DEFAULT_EXCLUDE_TITLES.filter((k) => !own.includes(k.trim()));
-    const flags = Object.fromEntries(Object.entries(FLAG_TITLES).map(([flag, kws]) => [flag, kws.filter((k) => !own.includes(k.trim()))]));
+    const fromRoles = profile.target_roles.map((r) => r.toLowerCase());
+    const keep = (k: string) => !own.includes(k.trim()) && !fromRoles.some((r) => ` ${r} `.includes(` ${k.trim()} `));
+    const exclude = DEFAULT_EXCLUDE_TITLES.filter(keep);
+    const flags = Object.fromEntries(Object.entries(FLAG_TITLES).map(([flag, kws]) => [flag, kws.filter(keep)]));
     const maxAge = userId ? (await this.settings.get(userId)).discovery.maxAgeDays : 30;
     return {
       titleKeywords: [],

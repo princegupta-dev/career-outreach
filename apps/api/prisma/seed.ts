@@ -86,7 +86,7 @@ async function main(): Promise<void> {
     let user = email ? await prisma.user.findUnique({ where: { email } }) : await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
     if (!user && email && password) {
       if (password.length < 10) throw new Error('SEED_USER_PASSWORD must be at least 10 characters');
-      user = await prisma.user.create({ data: { email, passwordHash: await bcrypt.hash(password, 12), name: process.env.SEED_USER_NAME ?? 'Prince Gupta' } });
+      user = await prisma.user.create({ data: { email, passwordHash: await bcrypt.hash(password, 12), name: process.env.SEED_USER_NAME ?? email.split('@')[0] } });
       console.log(`Created user ${email}`);
     }
     if (!user) {
