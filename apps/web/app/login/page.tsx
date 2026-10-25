@@ -9,7 +9,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [registrationOpen, setRegistrationOpen] = useState(false);
   const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [form, setForm] = useState({ email: '', password: '', name: 'Prince Gupta' });
+  const [form, setForm] = useState({ email: '', password: '', name: '' });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 

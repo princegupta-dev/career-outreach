@@ -1,60 +1,168 @@
 # Career Outreach Agent
 
-A personal, autonomous job-search and cold-outreach system for **Prince Gupta**.
+**A self-hosted job-search assistant that finds relevant jobs every morning, tailors your own LaTeX
+resume for each one, and drafts an honest cold email in Gmail — you just review and hit send.**
 
-Every morning it searches public job feeds and company career boards, filters and ranks the
-postings against Prince's real profile, finds a legitimate contact, tailors **his own LaTeX
-resume** (re-ordering only — never redesigning or inventing), compiles it to PDF, writes a short
-cold email in his voice, and puts it in **Gmail Drafts with the PDF attached**. He approves → it
-is sent → replies are detected → follow-ups on day 4, 9 and 16 stop the moment someone replies.
+It runs entirely on your machine with Docker. It works with **no API keys at all** (sandbox email +
+deterministic writer), and gets better if you add Gmail and Claude.
+
+![Dashboard](docs/screenshots/dashboard.png)
+
+## What it does
+
+Every day, automatically:
+
+1. **Finds jobs** from public feeds and company career boards — Hacker News "Who is hiring", We Work
+   Remotely, Remotive, Himalayas, Jobicy, Remote OK, Arbeitnow, and ~40 company boards (Greenhouse,
+   Ashby, Lever). Thousands of postings are filtered down to the few that fit you.
+2. **Scores each job** against your profile with a transparent 100-point score (skills, seniority,
+   role, location, …). No LLM needed; AI is only used for the strongest matches, if enabled.
+3. **Finds a real contact** — only published addresses (in the posting, on the company site, or via
+   Hunter.io). Emails are never guessed.
+4. **Tailors your resume** — re-orders bullets and skills in *your own* `.tex` file to put the most
+   relevant things first, then compiles it to PDF. Your design is never changed, and nothing is
+   invented.
+5. **Writes a short cold email** grounded only in facts from your profile, and puts it in **Gmail
+   Drafts with the PDF attached**.
+6. **You approve → it sends → it tracks replies.** If nobody answers, it prepares follow-ups on day
+   4, 9 and 16. The moment someone replies, all follow-ups stop.
 
 ```
-Profile + LaTeX resume
-   ↓  (daily, automatic)
-Find jobs: HN "Who is hiring", We Work Remotely, Remotive, Himalayas, Jobicy, Remote OK,
-           Arbeitnow + ~40 company boards (Greenhouse / Ashby / Lever public APIs)
-   ↓  filters (title, region, age) → dedupe → deterministic 100-pt score → AI only for strong matches
-"We found X relevant jobs for you today."
-   ↓  top N per day (auto-prepare, never sends)
-Contact (published in the posting / company website / Hunter.io) → tailored .tex → PDF
+Your profile + LaTeX resume
+   ↓  daily, automatic
+Find jobs → filter (title, region, age) → dedupe → score → (optional) AI analysis for strong matches
    ↓
-Cold email (Prince's voice) → Gmail draft with PDF → you approve → send → track
+Contact → tailored .tex → PDF → cold email → Gmail draft
    ↓
-No reply → follow-ups (day 4, 9, 16, your approval)      Reply → all follow-ups cancelled
+You approve → send → no reply: follow-ups (day 4, 9, 16) | reply: follow-ups cancelled
 ```
 
-Stack: Next.js (web) → NestJS monolith (API + BullMQ worker) → PostgreSQL (source of truth) +
-Redis (cache, locks, rate limits, queues) → TeX Live (in Docker). No microservices.
+**Honesty is built in.** A "truth guard" rejects any generated text that claims a skill, number or
+title that is not in your profile. Banned phrases ("I hope this email finds you well", "thrilled",
+"proven track record", …) are blocked.
+
+## Screenshots
+
+| Jobs found today | One job: score, contact, tailored PDF, email |
+| --- | --- |
+| ![Jobs](docs/screenshots/jobs.png) | ![Job detail](docs/screenshots/job-detail.png) |
+
+| Outreach pipeline | Resume (LaTeX template) |
+| --- | --- |
+| ![Outreach](docs/screenshots/outreach.png) | ![Resume](docs/screenshots/resume.png) |
+
+## Responsible use
+
+This tool is for writing **a few thoughtful emails a day**, not mass mailing. Daily send limits,
+per-company and per-recipient cooldowns, a suppression list (bounces and "please stop" replies) and
+a send window are on by default — please keep them that way. Every first email needs your approval.
+
+## Who it's for
+
+Out of the box it is tuned for **software engineers** (the default search, skill taxonomy and title
+filters are engineering-focused). Within that, you control it through your profile: target roles,
+locations, skills. Frontend, backend, full-stack, platform, staff — any role you list in
+`target_roles` is searched for.
 
 ---
 
-## Quick start (Docker)
+## Getting started
+
+### 1. Requirements
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine + Compose v2)
+- ~5 GB free disk (the API image includes TeX Live to compile LaTeX)
+- Git
+
+That's it for the Docker setup — no Node, Postgres or LaTeX on your machine.
+
+### 2. Clone and configure
 
 ```bash
-cp .env.example .env     # optional for a first look; required for Gmail / Claude
+git clone https://github.com/princegupta-dev/career-outreach.git
+cd career-outreach
+cp .env.example .env
+```
+
+For a first look, you don't need to edit `.env` — the defaults run in **sandbox mode** (nothing is
+ever sent; you can simulate replies) with the **template writer** (no AI, zero cost).
+
+Before using it for real, set two secrets in `.env`:
+
+```bash
+# paste each output into .env
+openssl rand -hex 32   # → SESSION_SECRET
+openssl rand -hex 32   # → ENCRYPTION_KEY
+```
+
+### 3. Put in your own profile and resume
+
+The `candidate/` folder holds **the author's** profile and resume as an example. Replace them:
+
+- `candidate/candidate-profile.md` — your roles, locations and skills (**required**)
+- `candidate/resume.tex` — your LaTeX resume (optional; delete it to use a built-in PDF layout)
+
+See [candidate/README.md](candidate/README.md) for what each field does.
+
+### 4. Start it
+
+```bash
 docker compose up --build
 ```
 
-Open http://localhost:3000 and create your account (only the first account may register).
-**The first job search starts immediately** — the dashboard says
-"We found X relevant jobs for you today" within a couple of minutes.
+The first build takes 5–15 minutes (mostly TeX Live). For a smaller image, if your resume doesn't
+need extra fonts:
 
-Then, once:
+```bash
+docker compose build --build-arg TEX_FONTS_EXTRA=false && docker compose up
+```
 
-1. **Profile** — check `candidate/candidate-profile.md` (editable in the app). It is the source of
-   truth for scoring and writing; anything not in it is never claimed.
-2. **Resume** — your LaTeX resume lives in `candidate/resume.tex` and is used automatically as the
-   template (or use *Upload .tex* on the Resume page, plus any `.cls/.sty/fonts`). It must compile;
-   the page shows the TeX log if it doesn't.
-3. **Settings → Connect Gmail** (see below) and set `EMAIL_PROVIDER=gmail`.
-4. Optional: Claude for better analysis/writing (`AI_PROVIDER=anthropic`).
+When you see the web container is ready, open **http://localhost:3000** and **create your
+account** (only the first account can register — this is a single-user app).
 
-Daily use: open the dashboard → pick a job → check match, contact, tailored PDF and email →
-**Approve & send** (or send the draft from Gmail — the app notices and starts tracking).
+The first job search starts right away. Within a couple of minutes the dashboard shows
+*"We found X relevant jobs for you today."*
 
-Ports are bound to localhost: web `3000`, API `4000`, Postgres `5433`, Redis `6380`.
-The API/worker image includes TeX Live with `texlive-fonts-extra` (~1 GB; build with
-`--build-arg TEX_FONTS_EXTRA=false` for a smaller image if your template doesn't need it).
+### 5. Daily use
+
+Open the dashboard → pick a job → check the match, contact, tailored PDF and email → **Approve &
+send** (or send the draft from Gmail directly — the app notices and starts tracking it).
+
+### 6. Optional upgrades
+
+| Want | Do this |
+| --- | --- |
+| Real emails via Gmail | Follow [Gmail setup](#gmail) below, then `EMAIL_PROVIDER=gmail` |
+| Better analysis & writing with Claude | `AI_PROVIDER=anthropic` and `ANTHROPIC_API_KEY=...` ([get a key](https://console.anthropic.com)) |
+| More contacts found | `HUNTER_API_KEY=...` ([Hunter.io](https://hunter.io), free tier) |
+| Different search time | `DISCOVERY_CRON` (default `30 1 * * *` = 07:00 IST; container time is UTC) |
+
+After editing `.env`, restart: `docker compose up -d --force-recreate api worker`.
+
+### Useful commands
+
+```bash
+docker compose up -d                  # start in the background
+docker compose logs -f api worker     # follow logs
+docker compose down                   # stop (data is kept in Docker volumes)
+docker compose down -v                # stop and DELETE all data
+```
+
+Ports (localhost only): web `3000`, API `4000`, Postgres `5433`, Redis `6380`.
+
+### Troubleshooting
+
+- **Port already in use** — stop whatever is using 3000/4000/5433/6380, or change the left side
+  of the `ports:` mappings in `docker-compose.yml`.
+- **"Blocked by your network"** on some sources — a firewall/antivirus is intercepting HTTPS. See
+  the network note under [Job discovery](#job-discovery).
+- **Resume doesn't compile** — the Resume page shows the TeX log. Upload any missing
+  `.cls`/`.sty`/font files there too.
+- **Gmail says "Access blocked"** — add your Gmail address under *Test users* (step 2 of
+  [Gmail](#gmail)).
+- **Profile errors** — open the Profile page; it shows exactly which field is invalid.
+
+---
 
 ## Local development (without Docker for the apps)
 
@@ -63,7 +171,8 @@ compilation locally (`brew install --cask mactex-no-gui`).
 
 ```bash
 npm install
-cp .env.example .env && ln -s ../../.env apps/api/.env     # edit DATABASE_URL / REDIS_URL / secrets
+npm run db:generate                                          # generate the Prisma client
+cp .env.example .env && ln -s ../../.env apps/api/.env       # edit DATABASE_URL / REDIS_URL / secrets
 npm run db:deploy && npm run db:seed
 npm run dev:api      # :4000
 npm run dev:worker   # BullMQ workers + schedules
@@ -72,6 +181,9 @@ npm run dev:web      # :3000
 
 Or run only infrastructure in Docker: `docker compose up -d postgres redis` and point `.env` at
 `postgresql://jobhunter:jobhunter@localhost:5433/job_hunter` and `redis://localhost:6380/0`.
+
+Stack: Next.js (web) → NestJS monolith (API + BullMQ worker) → PostgreSQL (source of truth) +
+Redis (cache, locks, rate limits, queues) → TeX Live. No microservices.
 
 ## Job discovery
 
@@ -92,7 +204,8 @@ manager, other primary languages) → region (remote jobs restricted to US/EU/UK
 India/APAC/worldwide kept) → age (≤ 30 days) → dedupe (source id + content hash, across sources and
 days) → deterministic score → only STRONG APPLY / APPLY ≥ threshold go to the LLM. Greenhouse boards
 are listed without descriptions; full text is fetched only for postings that pass the filters.
-A live dry-run on Oct 6, 2026: 3,535 postings listed → 57 after filters → 18 worth applying to.
+A fresh install on Oct 25, 2026 (46 sources, no API keys): 7,466 postings listed → 78 after
+filters → 31 relevant → 5 prepared automatically (tailored PDF compiled), with zero errors.
 
 Schedule: daily at 07:00 IST (`DISCOVERY_CRON=30 1 * * *`, container time is UTC), on first
 worker start, on sign-up, and on **Find jobs now**.

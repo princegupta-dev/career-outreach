@@ -256,9 +256,11 @@ export class JobsService {
     const profile = await this.profiles.get();
     const fromRoles = profile.target_roles.flatMap((r) => r.toLowerCase().replace(/^(senior|sr\.?)\s+/, '').split(/\s*\/\s*/));
     const titleKeywords = [...new Set([...fromRoles, 'backend', 'back-end', 'back end', 'node', 'typescript', 'platform', 'software engineer', 'software developer', 'sde', 'server', 'full stack', 'fullstack', 'api'])];
-    // Never exclude a stack the candidate actually has.
+    // Never exclude a stack the candidate actually has, or a word from their own target roles
+    // (e.g. "Frontend Engineer" or "Staff Engineer" must not be filtered out by the defaults).
     const own = profile.strongSkills.map((x) => x.toLowerCase());
-    const exclude = DEFAULT_EXCLUDE_TITLES.filter((k) => !own.includes(k.trim()));
+    const inOwnRoles = (k: string) => fromRoles.some((r) => ` ${r} `.includes(` ${k} `));
+    const exclude = DEFAULT_EXCLUDE_TITLES.filter((k) => !own.includes(k.trim()) && !inOwnRoles(k.trim()));
     const maxAge = userId ? (await this.settings.get(userId)).discovery.maxAgeDays : 30;
     return {
       titleKeywords,
