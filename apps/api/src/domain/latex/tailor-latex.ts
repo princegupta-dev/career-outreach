@@ -1,7 +1,7 @@
 import type { ResumeChange } from '../resume/types';
 import { checkBulletRewrite } from '../resume/truth-guard';
-import { canonicalizeSkill } from '../skills/taxonomy';
-import { applyEdits, itemSkills, LatexDoc, LatexEdit, latexEscape, parseLatex, REORDERABLE_SECTION } from './latex';
+import { canonicalizeSkill, findSkills, getSkill } from '../skills/taxonomy';
+import { applyEdits, itemSkills, LatexDoc, LatexEdit, latexEscape, maskComments, matchBrace, parseLatex, REORDERABLE_SECTION } from './latex';
 
 export interface LatexBullet {
   id: string;
@@ -24,6 +24,61 @@ export interface LatexTailorResult {
   bullets: LatexBullet[];
   /** Rewrites that were rejected by the truth guard (with reasons). */
   rejected: Array<{ id: string; reasons: string[] }>;
+}
+
+export interface LatexSummary {
+  text: string;
+  /** Offsets of the paragraph text itself (without surrounding blank space). */
+  start: number;
+  end: number;
+}
+
+/**
+ * The plain-text paragraph under a Summary / Profile / Objective heading, or null when there is none or it uses
+ * LaTeX formatting (then it is left alone, like any non-plain bullet).
+ */
+export function latexSummary(doc: LatexDoc): LatexSummary | null {
+  const sec = doc.sections.find((x) => /summary|profile|objective|about/i.test(x.title));
+  if (!sec) return null;
+  const masked = maskComments(doc.source);
+  const cmd = /\\section\*?\s*(?:\[[^\]]*\])?\s*\{/.exec(masked.slice(sec.start, sec.end));
+  if (!cmd) return null;
+  const open = sec.start + cmd.index + cmd[0].length - 1;
+  const close = matchBrace(masked, open);
+  if (close < 0) return null;
+  let from = close + 1;
+  let raw = doc.source.slice(from, sec.end);
+  // A common wrapper: \small{ …paragraph… }. Rewrite what is inside the braces.
+  const wrap = /^\s*\\(?:small|footnotesize|normalsize)\s*\{/.exec(raw);
+  if (wrap) {
+    const wOpen = from + wrap[0].length - 1;
+    const wClose = matchBrace(masked, wOpen);
+    if (wClose < 0) return null;
+    from = wOpen + 1;
+    raw = doc.source.slice(from, wClose);
+  }
+  const lead = /^\s*/.exec(raw)![0].length;
+  const body = raw.slice(lead).replace(/\s+$/, '');
+  if (!body || /\\[A-Za-z]/.test(body) || /[{}$]/.test(body) || /^\s*%/m.test(body)) return null;
+  return { text: body.replace(/\s+/g, ' '), start: from + lead, end: from + lead + body.length };
+}
+
+/** Where a confirmed skill belongs: the skills line whose items are mostly the same kind of skill. */
+function bestSegment(doc: LatexDoc, skill: string): number {
+  const cat = getSkill(skill)?.category;
+  let best = -1;
+  let bestScore = 0;
+  doc.skillSegments.forEach((seg, i) => {
+    const score = seg.items.filter((it) => {
+      const def = getSkill(canonicalizeSkill(it.replace(/\s*\(.*\)$/, '')));
+      return !!cat && def?.category === cat;
+    }).length;
+    if (score > bestScore) {
+      best = i;
+      bestScore = score;
+    }
+  });
+  return best;
 }
 
 function relevance(skills: string[], weights: Map<string, number>): number {
@@ -60,7 +115,7 @@ export function latexBullets(doc: LatexDoc, weights: Map<string, number>): Latex
 export function tailorLatex(
   source: string,
   weights: Map<string, number>,
-  opts: { rewrites?: LatexRewrite[]; allowedSkills?: string[] } = {},
+  opts: { rewrites?: LatexRewrite[]; allowedSkills?: string[]; summaryRewrite?: string; addSkills?: string[]; summarySkills?: string[] } = {},
 ): LatexTailorResult {
   const doc = parseLatex(source);
   const edits: LatexEdit[] = [];
@@ -101,12 +156,43 @@ export function tailorLatex(
     if (moved) changes.push({ section: 'experience', change: `Re-ordered ${list.items.length} bullets in "${list.section}"`, reason: `Most relevant first: "${list.items[idx[0]].text.slice(0, 60)}…"` });
   });
 
-  for (const seg of doc.skillSegments) {
-    const idx = order(seg.items, (s) => weights.get(canonicalizeSkill(s.replace(/\s*\(.*\)$/, ''))) ?? 0);
-    if (idx.every((v, i) => v === i)) continue;
+  // Skills the person confirmed they have (never chosen by the model). Skip any the resume already mentions.
+  const already = new Set(findSkills(doc.source).keys());
+  const added = new Map<number, string[]>();
+  for (const raw of opts.addSkills ?? []) {
+    const skill = canonicalizeSkill(raw);
+    if (already.has(skill) || [...added.values()].some((l) => l.includes(skill))) continue;
+    const at = bestSegment(doc, skill);
+    if (at < 0) {
+      rejected.push({ id: skill, reasons: ['No matching skills line in the resume to add it to'] });
+      continue;
+    }
+    added.set(at, [...(added.get(at) ?? []), skill]);
+    changes.push({ section: 'skills', change: `Added skill you confirmed: ${skill}`, reason: 'You said you have this skill and the job asks for it' });
+  }
+
+  doc.skillSegments.forEach((seg, si) => {
+    const items = [...seg.items, ...(added.get(si) ?? [])];
+    const idx = order(items, (s) => weights.get(canonicalizeSkill(s.replace(/\s*\(.*\)$/, ''))) ?? 0);
+    const grew = items.length > seg.items.length;
+    if (!grew && idx.every((v, i) => v === i)) return;
     const sep = doc.source.slice(seg.start, seg.end).includes(', ') ? ', ' : ',';
-    edits.push({ start: seg.start, end: seg.end, replacement: keepSentenceCase(seg.items, idx).join(sep) });
-    changes.push({ section: 'skills', change: `Re-ordered skills: ${idx.slice(0, 4).map((i) => seg.items[i]).join(', ')}…`, reason: 'JD-relevant skills first (nothing added or removed)' });
+    edits.push({ start: seg.start, end: seg.end, replacement: keepSentenceCase(items, idx).join(sep) });
+    if (idx.some((v, i) => v !== i)) changes.push({ section: 'skills', change: `Re-ordered skills: ${idx.slice(0, 4).map((i) => items[i]).join(', ')}…`, reason: 'JD-relevant skills first' });
+  });
+
+  // Summary paragraph, rephrased in the job's wording. Same truth checks as bullets, and it may not grow much.
+  if (opts.summaryRewrite) {
+    const sum = latexSummary(doc);
+    if (sum) {
+      const check = checkBulletRewrite(sum.text, opts.summaryRewrite, opts.summarySkills ?? []);
+      if (opts.summaryRewrite.length > sum.text.length * 1.15 + 20) check.reasons.push('Summary is longer than the original');
+      if (check.reasons.length) rejected.push({ id: 'summary', reasons: check.reasons });
+      else if (opts.summaryRewrite.trim() !== sum.text) {
+        edits.push({ start: sum.start, end: sum.end, replacement: latexEscape(opts.summaryRewrite.trim().replace(/\s+/g, ' ')) });
+        changes.push({ section: 'summary', change: 'Rephrased the summary', reason: 'Aligned wording with the job description' });
+      }
+    }
   }
 
   for (const id of rewrites.keys()) {

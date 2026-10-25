@@ -91,3 +91,12 @@ export function tailorResume(master: ResumeData, ex: JobExtraction, profile: Can
   const gaps = [...weights.keys()].filter((s) => !resumeSkills.has(s) && classifySkill(s, profile).level !== 'strong');
   return { data, changes, gaps };
 }
+
+/**
+ * Skills the job asks for that appear nowhere in the resume's own text. This is about the document, not the
+ * profile: a skill you list on the resume (e.g. "React.js", "Python") is never reported as missing.
+ */
+export function resumeGaps(resumeText: string, weights: Map<string, number>): string[] {
+  const onResume = findSkills(resumeText);
+  return [...weights.keys()].filter((skill) => !onResume.has(skill));
+}

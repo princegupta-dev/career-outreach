@@ -15,7 +15,9 @@ import { DomainModule } from './modules/domain.module';
 import { EmailController } from './modules/email/email.controller';
 import { HealthController } from './modules/health/health.controller';
 import { JobsController } from './modules/jobs/jobs.controller';
+import { LinkedInController } from './modules/outreach/linkedin.controller';
 import { OutreachController } from './modules/outreach/outreach.controller';
+import { PreparationController } from './modules/preparation/preparation.controller';
 import { ProfileController } from './modules/profile/profile.controller';
 import { QueuesModule } from './modules/queues/queues.module';
 import { ResumeController } from './modules/resume/resume.controller';
@@ -28,7 +30,7 @@ import { ResumeController } from './modules/resume/resume.controller';
     DomainModule,
     JwtModule.register({ secret: loadEnv().SESSION_SECRET, signOptions: { algorithm: 'HS256', issuer: 'job-hunter' }, verifyOptions: { algorithms: ['HS256'], issuer: 'job-hunter' } }),
   ],
-  controllers: [AuthController, ProfileController, JobsController, ContactsController, ResumeController, OutreachController, EmailController, DashboardController, DiscoveryController, HealthController],
+  controllers: [AuthController, ProfileController, JobsController, ContactsController, ResumeController, OutreachController, LinkedInController, PreparationController, EmailController, DashboardController, DiscoveryController, HealthController],
   providers: [
     AuthService,
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

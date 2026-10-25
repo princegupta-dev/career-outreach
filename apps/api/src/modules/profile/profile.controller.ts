@@ -42,6 +42,11 @@ export class ProfileController {
     return { settings: await this.settings.get(user.id), ai: { ...this.ai.status(), circuit: await this.ai.circuit() } };
   }
 
+  @Get('ai/check')
+  checkAi() {
+    return this.ai.check();
+  }
+
   @Patch('settings')
   async patchSettings(@CurrentUser() user: AuthUser, @Body(new ZodPipe(settingsPatch)) body: Record<string, unknown>) {
     const settings = await this.settings.update(user.id, body);

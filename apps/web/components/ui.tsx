@@ -1,16 +1,17 @@
 'use client';
 
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
-import type { ApplicationStatus, Recommendation } from '@/lib/types';
+import { stageOfStatus } from '@/lib/lifecycle';
+import { ApplicationStatus, Recommendation, Stage, STAGES } from '@/lib/types';
 import { humanize } from '@/lib/format';
 
 export function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(' ');
 }
 
-export function Card({ children, className, title, actions }: { children: ReactNode; className?: string; title?: ReactNode; actions?: ReactNode }) {
+export function Card({ children, className, title, actions, id }: { children: ReactNode; className?: string; title?: ReactNode; actions?: ReactNode; id?: string }) {
   return (
-    <section className={cx('rounded-lg border border-slate-200 bg-white', className)}>
+    <section id={id} className={cx('scroll-mt-4 rounded-lg border border-slate-200 bg-white', className)}>
       {(title || actions) && (
         <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
           <h2 className="text-sm font-semibold text-ink">{title}</h2>
@@ -75,23 +76,29 @@ export function Badge({ children, tone = 'slate', title }: { children: ReactNode
   );
 }
 
-const STATUS_TONE: Partial<Record<ApplicationStatus, 'slate' | 'green' | 'blue' | 'amber' | 'red' | 'violet'>> = {
-  QUALIFIED: 'blue',
+const STAGE_TONE: Record<Stage, 'slate' | 'green' | 'blue' | 'amber' | 'red' | 'violet'> = {
+  DISCOVERED: 'slate',
   SHORTLISTED: 'blue',
-  CONTACT_FOUND: 'violet',
-  RESUME_READY: 'violet',
-  EMAIL_READY: 'violet',
-  EMAIL_SENT: 'amber',
-  WAITING_FOR_REPLY: 'amber',
-  FOLLOWUP_SCHEDULED: 'amber',
+  PREPARING: 'violet',
+  READY_FOR_REVIEW: 'violet',
+  APPROVED: 'blue',
+  APPLIED: 'amber',
   REPLIED: 'green',
   INTERVIEW: 'green',
   OFFER: 'green',
   REJECTED: 'red',
+  SKIPPED: 'slate',
+  ARCHIVED: 'slate',
 };
 
+/** Shows the user-facing stage ("Ready for review", "Applied"…) for any application status. */
 export function StatusBadge({ status }: { status: ApplicationStatus | string }) {
-  return <Badge tone={STATUS_TONE[status as ApplicationStatus] ?? 'slate'}>{humanize(status)}</Badge>;
+  const stage = stageOfStatus(status);
+  return <Badge tone={stage ? STAGE_TONE[stage] : 'slate'}>{stage ? STAGES.find((s) => s.id === stage)!.label : humanize(status)}</Badge>;
+}
+
+export function StageBadge({ lifecycle }: { lifecycle: { stage: Stage; stageLabel: string } }) {
+  return <Badge tone={STAGE_TONE[lifecycle.stage]}>{lifecycle.stageLabel}</Badge>;
 }
 
 const REC_TONE: Record<Recommendation, 'green' | 'blue' | 'amber' | 'slate' | 'red'> = {
@@ -250,4 +257,39 @@ export function useAction() {
     [toast],
   );
   return { busy, run };
+}
+
+/** A section that is collapsed until the user opens it — keeps detail out of the way. */
+export function Disclosure({ title, hint, id, defaultOpen, children }: { title: ReactNode; hint?: ReactNode; id?: string; defaultOpen?: boolean; children: ReactNode }) {
+  return (
+    <details id={id} open={defaultOpen} className="group rounded-lg border border-slate-200 bg-white">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-ink [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0">
+          {title}
+          {hint && <span className="ml-2 font-normal text-ink-muted">{hint}</span>}
+        </span>
+        <span aria-hidden className="text-ink-muted transition-transform group-open:rotate-90">
+          ›
+        </span>
+      </summary>
+      <div className="border-t border-slate-100 p-4">{children}</div>
+    </details>
+  );
+}
+
+/** An inline message: what happened, or what needs attention. */
+export function Notice({ tone = 'blue', title, children, actions }: { tone?: 'blue' | 'amber' | 'red' | 'green'; title?: ReactNode; children?: ReactNode; actions?: ReactNode }) {
+  const tones = {
+    blue: 'border-blue-200 bg-blue-50 text-blue-900',
+    amber: 'border-amber-200 bg-amber-50 text-amber-900',
+    red: 'border-red-200 bg-red-50 text-red-900',
+    green: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+  };
+  return (
+    <div role={tone === 'red' ? 'alert' : 'status'} className={cx('rounded-md border px-3 py-2.5 text-sm', tones[tone])}>
+      {title && <p className="font-medium">{title}</p>}
+      {children && <div className={cx('text-[0.8125rem] leading-relaxed', !!title && 'mt-0.5')}>{children}</div>}
+      {actions && <div className="mt-2 flex flex-wrap gap-2">{actions}</div>}
+    </div>
+  );
 }

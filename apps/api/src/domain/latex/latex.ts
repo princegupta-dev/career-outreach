@@ -1,3 +1,4 @@
+import * as path from 'path';
 import { findSkills } from '../skills/taxonomy';
 
 /**
@@ -293,16 +294,12 @@ function parseItems(source: string, masked: string, bodyStart: number, bodyEnd: 
   return items;
 }
 
-export function detectEngine(source: string): 'pdflatex' | 'xelatex' | 'lualatex' {
-  const magic = /%\s*!\s*TeX\s+(?:TS-)?program\s*=\s*(\w+)/i.exec(source);
-  if (magic) {
-    const e = magic[1].toLowerCase();
-    if (e.includes('xe')) return 'xelatex';
-    if (e.includes('lua')) return 'lualatex';
-    return 'pdflatex';
-  }
-  if (/\\usepackage\s*(\[[^\]]*\])?\s*\{[^}]*\b(fontspec|unicode-math|polyglossia)\b/.test(maskComments(source))) return 'xelatex';
-  return 'pdflatex';
+/** Extra files uploaded with a .tex (kept for reference; the PDF is drawn from the resume content, not by running LaTeX). */
+const ALLOWED_ASSET = /^[A-Za-z0-9][A-Za-z0-9._-]{0,100}\.(cls|sty|bst|bib|png|jpe?g|pdf|otf|ttf|tex|def|cfg|fd)$/i;
+
+export function sanitizeAssetName(name: string): string | null {
+  const base = path.basename(name);
+  return ALLOWED_ASSET.test(base) ? base : null;
 }
 
 /** Basic safety + sanity checks for an uploaded resume. */
@@ -365,4 +362,14 @@ export function latexOutline(doc: LatexDoc): string {
     lines.push(...headerText, ...listText);
   }
   return lines.join('\n');
+}
+
+/**
+ * The resume's readable body text: everything from the first real \section, without the preamble and the header
+ * (name, contact line, and link labels like "GitHub", which say nothing about skills).
+ */
+export function resumeBodyText(source: string): string {
+  const doc = source.indexOf('\\begin{document}');
+  const first = source.indexOf('\\section', doc < 0 ? 0 : doc);
+  return latexToText(source.slice(first < 0 ? 0 : first));
 }

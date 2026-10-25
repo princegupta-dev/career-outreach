@@ -5,12 +5,19 @@ import type { ApplicationStatus } from '@prisma/client';
  * can always be reopened to SHORTLISTED manually.
  */
 const TRANSITIONS: Record<ApplicationStatus, ApplicationStatus[]> = {
-  DISCOVERED: ['QUALIFIED', 'SHORTLISTED', 'CLOSED'],
-  QUALIFIED: ['SHORTLISTED', 'CONTACT_FOUND', 'RESUME_READY', 'CLOSED', 'DISCOVERED'],
-  SHORTLISTED: ['CONTACT_FOUND', 'RESUME_READY', 'EMAIL_READY', 'QUALIFIED', 'CLOSED'],
-  CONTACT_FOUND: ['RESUME_READY', 'EMAIL_READY', 'SHORTLISTED', 'CLOSED'],
-  RESUME_READY: ['CONTACT_FOUND', 'EMAIL_READY', 'CLOSED'],
-  EMAIL_READY: ['EMAIL_SENT', 'RESUME_READY', 'CONTACT_FOUND', 'CLOSED'],
+  DISCOVERED: ['QUALIFIED', 'SHORTLISTED', 'PREPARING', 'APPLIED', 'SKIPPED', 'CLOSED'],
+  QUALIFIED: ['SHORTLISTED', 'CONTACT_FOUND', 'RESUME_READY', 'PREPARING', 'APPLIED', 'SKIPPED', 'CLOSED', 'DISCOVERED'],
+  SHORTLISTED: ['CONTACT_FOUND', 'RESUME_READY', 'EMAIL_READY', 'PREPARING', 'APPLIED', 'QUALIFIED', 'SKIPPED', 'CLOSED'],
+  CONTACT_FOUND: ['RESUME_READY', 'EMAIL_READY', 'PREPARING', 'SHORTLISTED', 'APPLIED', 'SKIPPED', 'CLOSED'],
+  RESUME_READY: ['CONTACT_FOUND', 'EMAIL_READY', 'PREPARING', 'SHORTLISTED', 'APPLIED', 'SKIPPED', 'CLOSED'],
+  EMAIL_READY: ['EMAIL_SENT', 'RESUME_READY', 'CONTACT_FOUND', 'READY_FOR_REVIEW', 'APPROVED', 'APPLIED', 'SHORTLISTED', 'SKIPPED', 'CLOSED'],
+  // The preparation workflow is running (or paused for the user's input).
+  PREPARING: ['READY_FOR_REVIEW', 'SHORTLISTED', 'SKIPPED', 'CLOSED'],
+  READY_FOR_REVIEW: ['APPROVED', 'PREPARING', 'SHORTLISTED', 'APPLIED', 'SKIPPED', 'CLOSED'],
+  // Approved: the email is queued, or the user will apply on the company's site.
+  APPROVED: ['APPLIED', 'READY_FOR_REVIEW', 'EMAIL_SENT', 'CLOSED'],
+  // Applied outside our email flow (company site / manual). Email-driven states below stay as they were.
+  APPLIED: ['WAITING_FOR_REPLY', 'REPLIED', 'INTERVIEW', 'REJECTED', 'CLOSED'],
   EMAIL_SENT: ['WAITING_FOR_REPLY', 'FOLLOWUP_SCHEDULED', 'REPLIED', 'INTERVIEW', 'REJECTED', 'CLOSED'],
   WAITING_FOR_REPLY: ['FOLLOWUP_SCHEDULED', 'REPLIED', 'INTERVIEW', 'REJECTED', 'CLOSED'],
   FOLLOWUP_SCHEDULED: ['WAITING_FOR_REPLY', 'REPLIED', 'INTERVIEW', 'REJECTED', 'CLOSED'],
@@ -18,6 +25,7 @@ const TRANSITIONS: Record<ApplicationStatus, ApplicationStatus[]> = {
   INTERVIEW: ['OFFER', 'REJECTED', 'CLOSED'],
   OFFER: ['CLOSED', 'REJECTED'],
   REJECTED: ['CLOSED', 'SHORTLISTED'],
+  SKIPPED: ['SHORTLISTED', 'CLOSED'],
   CLOSED: ['SHORTLISTED'],
 };
 
@@ -26,10 +34,14 @@ export const PIPELINE_ORDER: ApplicationStatus[] = [
   'DISCOVERED',
   'QUALIFIED',
   'SHORTLISTED',
+  'PREPARING',
   'CONTACT_FOUND',
   'RESUME_READY',
   'EMAIL_READY',
+  'READY_FOR_REVIEW',
+  'APPROVED',
   'EMAIL_SENT',
+  'APPLIED',
   'WAITING_FOR_REPLY',
   'FOLLOWUP_SCHEDULED',
   'REPLIED',
@@ -37,9 +49,14 @@ export const PIPELINE_ORDER: ApplicationStatus[] = [
   'OFFER',
   'REJECTED',
   'CLOSED',
+  'SKIPPED',
 ];
 
-/** Stages before any email is sent. */
+/**
+ * Stages before any email is sent that automatic progress may move through.
+ * PREPARING / READY_FOR_REVIEW are deliberately absent: while the preparation workflow owns the
+ * application, individual services (contact found, resume tailored, email drafted) must not move it.
+ */
 const PRE_SEND: ApplicationStatus[] = ['DISCOVERED', 'QUALIFIED', 'SHORTLISTED', 'CONTACT_FOUND', 'RESUME_READY', 'EMAIL_READY'];
 
 export function canTransition(from: ApplicationStatus, to: ApplicationStatus): boolean {
@@ -72,7 +89,7 @@ export function shouldAutoAdvance(current: ApplicationStatus, target: Applicatio
   return PIPELINE_ORDER.indexOf(target) > PIPELINE_ORDER.indexOf(current);
 }
 
-const TERMINAL: ApplicationStatus[] = ['OFFER', 'REJECTED', 'CLOSED'];
+const TERMINAL: ApplicationStatus[] = ['OFFER', 'REJECTED', 'CLOSED', 'SKIPPED'];
 
 /**
  * System events (email sent, reply received) are facts: they may fast-forward an
@@ -98,7 +115,14 @@ export function nextActionFor(status: ApplicationStatus): string {
     case 'RESUME_READY':
       return 'Generate email';
     case 'EMAIL_READY':
-      return 'Review & send email';
+    case 'READY_FOR_REVIEW':
+      return 'Review & approve';
+    case 'PREPARING':
+      return 'Preparing application';
+    case 'APPROVED':
+      return 'Send or apply';
+    case 'APPLIED':
+      return 'Wait for reply';
     case 'EMAIL_SENT':
     case 'WAITING_FOR_REPLY':
       return 'Wait for reply';

@@ -13,6 +13,7 @@
     "db:migrate": "npm run db:migrate -w apps/api",
     "db:deploy": "npm run db:deploy -w apps/api",
     "db:seed": "npm run db:seed -w apps/api",
+    "ai:check": "npm run ai:check -w apps/api",
     "test": "npm run test -w apps/api",
     "test:integration": "npm run test:integration -w apps/api",
     "test:e2e": "npm run test:e2e -w apps/api",

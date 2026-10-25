@@ -5,6 +5,7 @@ import { PrismaService } from '../../common/prisma.service';
 import type { Response } from 'express';
 import { z } from 'zod';
 import { AuthUser, CurrentUser, RateLimit, ZodPipe } from '../../common/http';
+import { ResumeSourcesService } from './resume-sources.service';
 import { ResumeService } from './resume.service';
 
 const MAX_UPLOAD = 5 * 1024 * 1024;
@@ -12,10 +13,61 @@ const MAX_UPLOAD = 5 * 1024 * 1024;
 @Controller()
 export class ResumeController {
   constructor(
+    private readonly sources: ResumeSourcesService,
     private readonly resumes: ResumeService,
     private readonly outreach: OutreachService,
     private readonly prisma: PrismaService,
   ) {}
+
+  // ─── Resume Studio: versioned master resume ────────────────────────────────
+
+  @Get('resume/sources')
+  async listSources(@CurrentUser() user: AuthUser) {
+    await this.resumes.getMaster(user.id);
+    return this.sources.list(user.id);
+  }
+
+  /** Upload a PDF or DOCX. It is stored unchanged and extracted for review; it is not used until activated. */
+  @Post('resume/sources')
+  @HttpCode(201)
+  @RateLimit({ name: 'resume-import', limit: 10, windowSec: 60 })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD, files: 1 } }))
+  async uploadSource(@CurrentUser() user: AuthUser, @UploadedFile() file?: Express.Multer.File, @Body() body?: { label?: string }) {
+    if (!file) throw new BadRequestException('Attach a file in the "file" field');
+    await this.resumes.getMaster(user.id);
+    return this.sources.upload(user.id, file, { label: typeof body?.label === 'string' ? body.label.slice(0, 120) : undefined });
+  }
+
+  @Get('resume/sources/:id')
+  getSource(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.sources.get(user.id, id);
+  }
+
+  @Get('resume/sources/:id/file')
+  async sourceFile(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
+    const f = await this.sources.originalFile(user.id, id);
+    res.setHeader('Content-Type', f.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${f.name.replace(/[^\w. -]/g, '_')}"`);
+    res.send(f.buffer);
+  }
+
+  @Put('resume/sources/:id')
+  updateSource(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(z.object({ data: z.unknown(), label: z.string().max(120).optional() }))) body: { data: unknown; label?: string }) {
+    return this.sources.update(user.id, id, body.data, body.label);
+  }
+
+  /** Confirm a version and make it the master resume. */
+  @Post('resume/sources/:id/activate')
+  @HttpCode(200)
+  activateSource(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.sources.activate(user.id, id);
+  }
+
+  @Delete('resume/sources/:id')
+  @HttpCode(204)
+  async discardSource(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.sources.discard(user.id, id);
+  }
 
   @Get('resume/master')
   master(@CurrentUser() user: AuthUser) {
@@ -110,7 +162,7 @@ export class ResumeController {
   @Post('jobs/:id/resume')
   @HttpCode(200)
   @RateLimit({ name: 'ai', limit: 20, windowSec: 60 })
-  async tailor(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(z.object({ useAi: z.boolean().optional(), force: z.boolean().optional() }))) body: { useAi?: boolean; force?: boolean }) {
+  async tailor(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(z.object({ useAi: z.boolean().optional(), force: z.boolean().optional(), confirmedSkills: z.array(z.string().min(1).max(60)).max(30).optional() }))) body: { useAi?: boolean; force?: boolean; confirmedSkills?: string[] }) {
     const r = await this.resumes.tailor(user.id, id, body);
     // Keep any pending Gmail draft's attachment in sync with the new PDF.
     const app = await this.prisma.application.findFirst({ where: { jobId: id, userId: user.id }, select: { id: true } });

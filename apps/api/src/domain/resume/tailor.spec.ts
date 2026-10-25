@@ -1,9 +1,11 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { BACKEND_JD, loadProfile } from '../__fixtures__/fixtures';
 import { extractJob } from '../skills/extract';
 import { findSkills } from '../skills/taxonomy';
 import { resumeFromProfile } from './from-profile';
 import { parseResumeText } from './parse-text';
-import { tailorResume } from './tailor';
+import { resumeGaps, tailorResume } from './tailor';
 import { checkBulletRewrite } from './truth-guard';
 
 const profile = loadProfile();
@@ -104,5 +106,25 @@ Node.js, TypeScript, Redis, MySQL`;
     expect(r.experience[0].bullets).toHaveLength(2);
     expect(r.skills.flatMap((g) => g.items)).toEqual(expect.arrayContaining(['Node.js', 'TypeScript', 'Redis', 'MySQL']));
     expect(r.education[0].year).toBe('2023');
+  });
+});
+
+
+describe('resumeGaps (what the job asks for that is not on the resume)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { resumeBodyText } = require('../latex/latex') as typeof import('../latex/latex');
+  const text = resumeBodyText(fs.readFileSync(path.resolve(__dirname, '../../../../../candidate/resume.tex'), 'utf8')); // body only: the header's "GitHub" link label is not a skill
+  const weights = (skills: string[]) => new Map(skills.map((s) => [s, 2]));
+
+  it('never reports a skill that is on the resume — checked against the real resume text', () => {
+    // React.js, Python, MongoDB, Redis, Docker and Kubernetes are all written on the resume.
+    expect(resumeGaps(text, weights(['React', 'Python', 'MongoDB', 'Redis', 'Docker', 'Kubernetes', 'TypeScript', 'PostgreSQL']))).toEqual([]);
+  });
+
+  it('reports what really is missing', () => {
+    const gaps = resumeGaps(text, weights(['Django', 'Git', 'Elasticsearch', 'Python', 'React']));
+    expect(gaps).toEqual(expect.arrayContaining(['Django', 'Git', 'Elasticsearch']));
+    expect(gaps).not.toContain('Python');
+    expect(gaps).not.toContain('React');
   });
 });

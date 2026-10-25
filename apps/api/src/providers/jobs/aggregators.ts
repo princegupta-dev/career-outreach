@@ -4,18 +4,14 @@ import { categorizeRole } from '../../domain/contacts/rank';
 import type { ContactCandidate } from '../contacts/contact-provider';
 import { fetchJson, httpFetch, FetchError } from '../http';
 import { htmlToText } from './html-extract';
-import { filterListed, JobProvider, JobSearchCriteria, ProviderJob } from './job-provider.interface';
+import { filterListed, JobProvider, JobSearchCriteria, parseDate, ProviderJob, warn } from './job-provider.interface';
 
 /**
  * Public, documented job feeds. They are searched (not scraped), at most a few
  * times a day, and every job links back to its original posting.
  */
 
-const toDate = (v: unknown): Date | null => {
-  if (v == null || v === '') return null;
-  const d = typeof v === 'number' ? new Date(v < 1e12 ? v * 1000 : v) : new Date(String(v).replace(' ', 'T'));
-  return isNaN(d.getTime()) ? null : d;
-};
+const toDate = parseDate;
 const str = (v: unknown): string => (v == null ? '' : String(v)).trim();
 const salary = (min: unknown, max: unknown, cur: unknown): string | null => (min || max ? `${str(cur) || 'USD'} ${min || max} - ${max || min} per year` : null);
 
@@ -105,8 +101,24 @@ export function parseHimalayas(json: { jobs?: HimalayasJob[] }): ProviderJob[] {
 
 export class HimalayasProvider extends FeedProvider {
   readonly kind = 'HIMALAYAS' as const;
+  /** Most recent postings to read. */
+  private static readonly WANT = 200;
   async searchJobs(c: JobSearchCriteria): Promise<ProviderJob[]> {
-    const pages = await Promise.all([0, 100].map((offset) => fetchJson<{ jobs?: HimalayasJob[] }>(`https://himalayas.app/jobs/api?limit=100&offset=${offset}`)));
+    type Page = { jobs?: HimalayasJob[]; limit?: number };
+    const page = (offset: number) => fetchJson<Page>(`https://himalayas.app/jobs/api?limit=100&offset=${offset}`);
+    const first = await page(0);
+    // The server caps the page size (20 at the time of writing) whatever ?limit says, so a fixed offset step skips postings.
+    const size = first.limit && first.limit > 0 ? first.limit : (first.jobs?.length ?? 0);
+    const pages: Page[] = [first];
+    if (size > 0) {
+      const offsets = Array.from({ length: Math.max(0, Math.ceil(HimalayasProvider.WANT / size) - 1) }, (_, i) => (i + 1) * size);
+      const rest = await Promise.allSettled(offsets.map(page));
+      for (const r of rest) {
+        if (r.status === 'fulfilled') pages.push(r.value);
+      }
+      const failed = rest.length - (pages.length - 1);
+      if (failed) warn(c, `Himalayas: ${failed} of ${rest.length + 1} pages failed to load`);
+    }
     return filterListed(pages.flatMap(parseHimalayas), c);
   }
 }
@@ -151,6 +163,7 @@ export class JobicyProvider extends FeedProvider {
     const res = await Promise.allSettled(tags.map((t) => fetchJson<{ jobs?: JobicyJob[] }>(`https://jobicy.com/api/v2/remote-jobs?count=100&tag=${t}`)));
     const ok = res.filter((r): r is PromiseFulfilledResult<{ jobs?: JobicyJob[] }> => r.status === 'fulfilled');
     if (!ok.length) throw (res[0] as PromiseRejectedResult).reason;
+    if (ok.length < res.length) warn(c, `Jobicy: ${res.length - ok.length} of ${res.length} tag queries failed (${((res.find((r) => r.status === 'rejected') as PromiseRejectedResult).reason as Error).message})`);
     return filterListed(ok.flatMap((r) => parseJobicy(r.value)), c);
   }
 }
@@ -187,9 +200,10 @@ export function parseArbeitnow(json: { data?: ArbeitnowJob[] }): ProviderJob[] {
 export class ArbeitnowProvider extends FeedProvider {
   readonly kind = 'ARBEITNOW' as const;
   async searchJobs(c: JobSearchCriteria): Promise<ProviderJob[]> {
-    const res = await Promise.allSettled([1, 2].map((p) => fetchJson<{ data?: ArbeitnowJob[] }>(`https://www.arbeitnow.com/api/job-board-api?page=${p}`)));
+    const res = await Promise.allSettled([1, 2].map((p) => fetchJson<{ data?: ArbeitnowJob[] }>(`https://www.arbeitnow.com/api/job-board-api?page=${p}`, { maxBytes: 10_000_000 })));
     const ok = res.filter((r): r is PromiseFulfilledResult<{ data?: ArbeitnowJob[] }> => r.status === 'fulfilled');
     if (!ok.length) throw (res[0] as PromiseRejectedResult).reason;
+    if (ok.length < res.length) warn(c, `Arbeitnow: ${res.length - ok.length} of ${res.length} pages failed (${((res.find((r) => r.status === 'rejected') as PromiseRejectedResult).reason as Error).message})`);
     return filterListed(ok.flatMap((r) => parseArbeitnow(r.value)), c);
   }
 }
@@ -237,7 +251,9 @@ export class RemoteOkProvider extends FeedProvider {
 // ─── Hacker News "Who is hiring?" ────────────────────────────────────────────
 
 const ROLE_HINT = /engineer|developer|sde|swe|backend|back-end|full.?stack|programmer|architect|devops|sre|platform|infrastructure/i;
-const LOC_HINT = /remote|onsite|on-site|hybrid|in[- ]office|india|bangalore|bengaluru|london|berlin|new york|nyc|sf|san francisco|europe|us|usa|eu|worldwide|anywhere|apac/i;
+const LOC_HINT = /\b(?:remote|onsite|on-site|hybrid|in[- ]office|india|bangalore|bengaluru|london|berlin|new york|nyc|sf|san francisco|europe|us|usa|eu|worldwide|anywhere|apac)\b/i;
+/** A header fragment is a location only if it is short (a few words) and has no link; longer ones are the company's pitch. */
+const isLocationPart = (p: string) => p.length <= 60 && p.split(/\s+/).length <= 8 && !/https?:\/\//.test(p) && LOC_HINT.test(p);
 const EMAIL_PLAIN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
 const EMAIL_OBFUSCATED = /([A-Za-z0-9._%+-]+)\s*(?:\[at\]|\(at\)|\{at\}|\sat\s)\s*([A-Za-z0-9-]+(?:\s*(?:\[dot\]|\(dot\)|\{dot\}|\sdot\s|\.)\s*[A-Za-z0-9-]+)+)/gi;
 
@@ -276,7 +292,7 @@ export function parseHnComment(c: HnComment): ProviderJob | null {
   const companyName = parts[0].replace(/\(.*?\)/g, '').replace(/https?:\/\/\S+/g, '').trim();
   if (!companyName || companyName.length > 80) return null;
   const role = parts.slice(1).find((p) => ROLE_HINT.test(p)) ?? parts[1];
-  const location = parts.slice(1).filter((p) => p !== role && LOC_HINT.test(p)).join(' · ') || null;
+  const location = parts.slice(1).filter((p) => p !== role && isLocationPart(p)).join(' · ') || null;
   const description = htmlToText(html);
   const remote = /\bremote\b/i.test(first);
   const roleNote = /\b(i'?m|i am)\s+(the\s+)?(cto|ceo|founder|co-?founder|engineering manager|hiring manager|head of engineering|vp of engineering)\b/i.exec(description);
@@ -374,13 +390,15 @@ export class WeWorkRemotelyProvider extends FeedProvider {
     const errors: string[] = [];
     for (const f of feeds) {
       try {
-        const r = await httpFetch(`https://weworkremotely.com/categories/${f}.rss`);
+        const r = await httpFetch(`https://weworkremotely.com/categories/${f}.rss`, { retries: 2 });
         if (r.status < 400) out.push(...parseWwrRss(r.text));
+        else errors.push(`${f}: HTTP ${r.status}`);
       } catch (e) {
-        errors.push((e as Error).message);
+        errors.push(`${f}: ${(e as Error).message}`);
       }
     }
     if (!out.length && errors.length) throw new FetchError(errors[0]);
+    if (errors.length) warn(c, `We Work Remotely: ${errors.length} of ${feeds.length} feeds failed (${errors.join('; ')})`);
     return filterListed(out, c);
   }
 }

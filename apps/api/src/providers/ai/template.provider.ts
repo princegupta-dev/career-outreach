@@ -5,11 +5,13 @@ import {
   EmailDraft,
   GenerateEmailRequest,
   GenerateFollowupInput,
+  GenerateLinkedInNoteInput,
   JobAnalysis,
   TailorResumeInput,
   TailoredBullets,
 } from './ai-provider.interface';
 import { writeFollowupEmail, writeInitialEmail } from '../../domain/email/template-writer';
+import { buildTemplateNote } from '../../domain/linkedin/note';
 import { classifySkill } from '../../domain/matching/scorer';
 
 const USAGE = { model: 'deterministic-template' };
@@ -21,6 +23,7 @@ const USAGE = { model: 'deterministic-template' };
 export class TemplateProvider implements AIProvider {
   readonly name = 'template';
   readonly isLlm = false;
+  readonly model = null;
 
   async analyzeJob(input: AnalyzeJobInput): Promise<AiResult<JobAnalysis>> {
     const m = input.match;
@@ -57,5 +60,9 @@ export class TemplateProvider implements AIProvider {
   async generateFollowup(input: GenerateFollowupInput): Promise<AiResult<EmailDraft>> {
     const draft = writeFollowupEmail(input, input.profile);
     return { output: { subject: draft.subject, body: draft.body, provider: this.name, usedFact: draft.usedFact }, usage: USAGE };
+  }
+
+  async generateLinkedInNote(req: GenerateLinkedInNoteInput): Promise<AiResult<{ note: string }>> {
+    return { output: { note: buildTemplateNote(req.input) }, usage: USAGE };
   }
 }

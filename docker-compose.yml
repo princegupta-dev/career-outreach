@@ -12,6 +12,8 @@ x-app-env: &app-env
   API_PORT: 4000
   LOG_LEVEL: ${LOG_LEVEL:-info}
   AI_PROVIDER: ${AI_PROVIDER:-template}
+  OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+  OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
   EMAIL_PROVIDER: ${EMAIL_PROVIDER:-sandbox}
   GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:3000/api/email/gmail/callback}
 

@@ -8,8 +8,7 @@ import { EmailAccountsService } from '../../src/modules/email/email-accounts.ser
 import { FollowupRunnerService } from '../../src/modules/followups/followup-runner.service';
 import { OutreachService } from '../../src/modules/outreach/outreach.service';
 import { QueueService } from '../../src/modules/queues/queues';
-import { LatexCompiler } from '../../src/providers/documents/latex-compiler';
-import { createHttpApp, flushRedis, resetDatabase } from '../setup/helpers';
+import { createHttpApp, flushRedis, pdfBrowserAvailable, resetDatabase } from '../setup/helpers';
 import { installMockWeb } from '../setup/mock-web';
 
 const LATEX = fs.readFileSync(path.resolve(__dirname, '../../src/domain/__fixtures__/resume.tex'), 'utf8');
@@ -25,7 +24,7 @@ describe('Autonomous discovery → cold outreach (e2e)', () => {
   let agent: ReturnType<typeof request.agent>;
   let csrf: string;
   let web: ReturnType<typeof installMockWeb>;
-  let hasTex = false;
+  let hasBrowser = false;
 
   const post = (p: string, body: object = {}) => agent.post(`/api${p}`).set('x-csrf-token', csrf).send(body);
   const get = (p: string) => agent.get(`/api${p}`);
@@ -33,7 +32,7 @@ describe('Autonomous discovery → cold outreach (e2e)', () => {
   beforeAll(async () => {
     app = await createHttpApp();
     prisma = app.get(PrismaService);
-    hasTex = await new LatexCompiler().available('pdflatex');
+    hasBrowser = await pdfBrowserAvailable();
   });
   beforeEach(async () => {
     await resetDatabase(prisma);
@@ -159,8 +158,8 @@ describe('Autonomous discovery → cold outreach (e2e)', () => {
   it('uses the uploaded LaTeX resume as the template (design untouched, only order changes)', async () => {
     const up = await agent.post('/api/resume/latex').set('x-csrf-token', csrf).attach('files', Buffer.from(LATEX), 'resume.tex').expect(200);
     expect(up.body.summary.latex.sections).toEqual(['Experience', 'Projects', 'Technical Skills']);
-    expect(up.body.compiled).toBe(hasTex);
-    if (!hasTex) expect(up.body.error).toMatch(/not installed/);
+    expect(up.body.compiled).toBe(hasBrowser);
+    if (!hasBrowser) expect(up.body.error).toMatch(/playwright install chromium/);
 
     const user = await prisma.user.findFirstOrThrow();
     await app.get(DiscoveryService).runAll(user.id, 'manual');
@@ -174,12 +173,12 @@ describe('Autonomous discovery → cold outreach (e2e)', () => {
     const diff = (await get(`/resume/versions/${tailored.id}/diff`).expect(200)).body;
     expect(diff.lines.some((l: { type: string }) => l.type === 'add')).toBe(true);
 
-    if (hasTex) {
+    if (hasBrowser) {
       expect(tailored.compileStatus).toBe('ok');
       const pdf = await get(`/resume/versions/${tailored.id}/download`).expect(200);
       expect(pdf.body.subarray(0, 4).toString()).toBe('%PDF');
     } else {
-      // Without a TeX engine we refuse to substitute a different design.
+      // Without a browser engine we say so and refuse to substitute a different resume.
       expect(tailored.compileStatus).toBe('failed');
       await get(`/resume/versions/${tailored.id}/download`).expect(422);
     }

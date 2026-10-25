@@ -51,6 +51,7 @@ export function installMockWeb(): MockWebCalls & { restore: () => void } {
     calls.push(url);
     const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
     const html = (body: string, status = 200) => new Response(body, { status, headers: { 'content-type': 'text/html' } });
+    if (url.includes('yc-oss.github.io')) return json([]); // startup directory: empty unless a test supplies one
     if (url.includes('hn.algolia.com') && url.includes('author_whoishiring')) return json(HN_STORY);
     if (url.includes('hn.algolia.com') && url.includes('story_9001')) return json(HN_COMMENTS);
     if (url.includes('weworkremotely.com') && url.includes('back-end')) return new Response(WWR_RSS, { status: 200, headers: { 'content-type': 'application/rss+xml' } });

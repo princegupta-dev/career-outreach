@@ -7,6 +7,7 @@ import { startOfLocalDay } from '../../domain/outreach/guardrails';
 import { AiService } from '../ai/ai.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { ContactsService } from '../contacts/contacts.service';
+import { DirectoryResult, DirectoryService } from './directory.service';
 import { JobsService } from '../jobs/jobs.service';
 import { OutreachService } from '../outreach/outreach.service';
 import { ResumeService } from '../resume/resume.service';
@@ -20,8 +21,24 @@ export interface RunStats {
   duplicates: number;
   created: number;
   relevant: number;
+  /** Relevant jobs at companies that look like startups (≤ 300 people, or sized early/growth stage). */
+  relevantStartups: number;
   queuedForAi: number;
+  /** New jobs kept although their region is not stated (flagged, ranked lower, never silently dropped). */
+  uncertain: number;
+  /** Sources not run this time because they failed 5+ times in a row recently. */
+  sourcesSkipped: number;
+  /** What the startup directory contributed (companies seen, probed, boards found, sources added). */
+  directory?: DirectoryResult;
   prepared: number;
+  /** Postings dropped by the title/region/age filters, by reason code, across all sources. */
+  rejected: Record<string, number>;
+  /** Passed the filters but unusable (no/short description). */
+  invalid: number;
+  /** Passed the filters but could not be saved. */
+  failed: number;
+  /** Partial problems that did not fail a source. */
+  warnings: Array<{ source: string; warning: string }>;
   errors: Array<{ source: string; error: string }>;
 }
 
@@ -50,6 +67,7 @@ export class DiscoveryService {
     private readonly ai: AiService,
     private readonly analytics: AnalyticsService,
     private readonly metrics: MetricsService,
+    private readonly directory: DirectoryService,
   ) {}
 
   async runAll(userId: string, trigger: 'schedule' | 'manual' | 'startup' | 'signup'): Promise<RunStats & { runId: string; skipped?: boolean }> {
@@ -64,7 +82,15 @@ export class DiscoveryService {
       const settings = await this.settings.get(userId);
       if (!settings.discovery.enabled && trigger === 'schedule') return { runId: run.id, skipped: true, ...stats };
       await this.jobs.ensureDefaultSources(userId);
-      const sources = await this.prisma.jobSource.findMany({ where: { userId, enabled: true }, orderBy: { createdAt: 'asc' } });
+      // Find more startups to watch (bounded work per run; a failure here never blocks the sources we already have).
+      stats.directory = await this.directory.refresh(userId);
+      for (const w of stats.directory.warnings) stats.warnings.push({ source: 'Startup directory', warning: w });
+      const enabled = await this.prisma.jobSource.findMany({ where: { userId, enabled: true }, orderBy: { createdAt: 'asc' } });
+      // A source that failed 5+ times in a row is retried at most once a day, so it cannot slow every run.
+      const dayAgo = Date.now() - 24 * 3600_000;
+      const sources = enabled.filter((x) => x.consecutiveFailures < 5 || !x.lastRunAt || x.lastRunAt.getTime() < dayAgo);
+      stats.sourcesSkipped = enabled.length - sources.length;
+      if (stats.sourcesSkipped) stats.warnings.push({ source: 'Source health', warning: `${stats.sourcesSkipped} sources skipped after repeated failures (retried daily)` });
       stats.sources = sources.length;
       const queue = [...sources];
       const worker = async () => {
@@ -76,6 +102,11 @@ export class DiscoveryService {
             stats.duplicates += r.duplicates;
             stats.created += r.created;
             stats.queuedForAi += r.queuedForAi;
+            stats.uncertain += r.uncertain;
+            stats.invalid += r.invalid;
+            stats.failed += r.failed;
+            for (const [reason, n] of Object.entries(r.rejected)) stats.rejected[reason] = (stats.rejected[reason] ?? 0) + n;
+            for (const w of r.warnings) stats.warnings.push({ source: s.name, warning: w.slice(0, 300) });
           } catch (e) {
             stats.sourcesFailed++;
             stats.errors.push({ source: s.name, error: (e as Error).message.slice(0, 200) });
@@ -86,13 +117,22 @@ export class DiscoveryService {
       stats.relevant = await this.prisma.job.count({
         where: { userId, deletedAt: null, createdAt: { gte: run.startedAt }, recommendation: { in: [...RELEVANT] } },
       });
+      stats.relevantStartups = await this.prisma.job.count({
+        where: {
+          userId,
+          deletedAt: null,
+          createdAt: { gte: run.startedAt },
+          recommendation: { in: [...RELEVANT] },
+          company: { OR: [{ teamSize: { gte: 5, lte: 300 } }, { teamSize: null, size: { in: ['EARLY_STARTUP', 'GROWTH_STARTUP'] } }] },
+        },
+      });
       stats.prepared = (await this.prepareTop(userId)).prepared;
       return { runId: run.id, ...stats };
     } finally {
       await this.prisma.discoveryRun.update({ where: { id: run.id }, data: { finishedAt: new Date(), stats: stats as unknown as Prisma.InputJsonValue } });
       await this.analytics.invalidate(userId);
       await release();
-      this.logger.log({ msg: 'Discovery run finished', userId, trigger, ...stats, errors: stats.errors.length });
+      this.logger.log({ msg: 'Discovery run finished', userId, trigger, ...stats, errors: stats.errors.length, warnings: stats.warnings.length });
     }
   }
 
@@ -207,5 +247,5 @@ export class DiscoveryService {
 }
 
 function emptyStats(): RunStats {
-  return { sources: 0, sourcesFailed: 0, fetched: 0, afterFilters: 0, duplicates: 0, created: 0, relevant: 0, queuedForAi: 0, prepared: 0, errors: [] };
+  return { sources: 0, sourcesFailed: 0, fetched: 0, afterFilters: 0, duplicates: 0, created: 0, relevant: 0, relevantStartups: 0, queuedForAi: 0, uncertain: 0, sourcesSkipped: 0, prepared: 0, rejected: {}, invalid: 0, failed: 0, warnings: [], errors: [] };
 }

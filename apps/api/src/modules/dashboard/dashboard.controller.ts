@@ -2,7 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { AuthUser, CurrentUser, ZodPipe } from '../../common/http';
 import { PrismaService } from '../../common/prisma.service';
-import { nextActionFor } from '../../domain/applications/state-machine';
+import { lifecycleOf } from '../../domain/applications/lifecycle';
 import { AiService } from '../ai/ai.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { ApplicationsService } from '../applications/applications.service';
@@ -11,8 +11,8 @@ import { EmailAccountsService } from '../email/email-accounts.service';
 const PIPELINE_GROUPS = {
   Discovered: ['DISCOVERED'],
   Qualified: ['QUALIFIED', 'SHORTLISTED'],
-  Outreach: ['CONTACT_FOUND', 'RESUME_READY', 'EMAIL_READY', 'EMAIL_SENT'],
-  Waiting: ['WAITING_FOR_REPLY', 'FOLLOWUP_SCHEDULED'],
+  Outreach: ['PREPARING', 'CONTACT_FOUND', 'RESUME_READY', 'EMAIL_READY', 'READY_FOR_REVIEW', 'APPROVED', 'EMAIL_SENT'],
+  Waiting: ['APPLIED', 'WAITING_FOR_REPLY', 'FOLLOWUP_SCHEDULED'],
   Replied: ['REPLIED'],
   Interview: ['INTERVIEW'],
   Offer: ['OFFER'],
@@ -43,7 +43,7 @@ export class DashboardController {
         select: { id: true, replySentiment: true, job: { select: { id: true, title: true, company: { select: { name: true } } } } },
       }),
       this.prisma.job.findMany({
-        where: { userId: user.id, deletedAt: null, application: { status: { notIn: ['CLOSED', 'REJECTED'] } } },
+        where: { userId: user.id, deletedAt: null, application: { status: { notIn: ['CLOSED', 'REJECTED', 'SKIPPED'] } } },
         orderBy: [{ score: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
         take: 12,
         select: {
@@ -78,7 +78,7 @@ export class DashboardController {
       pipeline: Object.entries(PIPELINE_GROUPS).map(([label, statuses]) => ({ label, statuses, count: statuses.reduce((a, s) => a + counts[s], 0) })),
       statusCounts: counts,
       actions: { draftsToReview: drafts, followupDraftsToReview: followupDrafts, failedSends: failed, repliesToAnswer: replies },
-      jobs: topJobs.map((j) => ({ ...j, nextAction: j.application ? nextActionFor(j.application.status) : null })),
+      jobs: topJobs.map((j) => ({ ...j, nextAction: j.application ? lifecycleOf(j.application.status, { recommendation: j.recommendation }).label : null })),
       setup: {
         emailMode: email.mode,
         gmailConnected: email.accounts.some((a) => a.provider === 'GMAIL' && a.status === 'CONNECTED'),

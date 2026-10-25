@@ -1,3 +1,4 @@
+import type { LinkedInNoteInput } from '../../domain/linkedin/note';
 import { z } from 'zod';
 import type { GenerateEmailInput } from '../../domain/email/voice';
 import type { MatchResult } from '../../domain/matching/scorer';
@@ -34,6 +35,8 @@ export interface AnalyzeJobInput {
 
 export const tailoredBulletsSchema = z.object({
   rewrites: z.array(z.object({ id: z.string(), text: z.string(), reason: z.string() })),
+  /** The rewritten summary paragraph (only when a summary was given). */
+  summary: z.string().optional(),
 });
 export type TailoredBullets = z.infer<typeof tailoredBulletsSchema>;
 
@@ -44,6 +47,8 @@ export interface TailorResumeInput {
   jobSkills: string[];
   description: string;
   bullets: Array<{ id: string; text: string; roleTechnologies: string[] }>;
+  /** The resume's current summary paragraph, if it should be tailored too. */
+  summary?: string;
 }
 
 // ─── Emails ──────────────────────────────────────────────────────────────────
@@ -86,11 +91,31 @@ export interface AiResult<T> {
 }
 
 /** Swappable AI provider. Implementations must never invent candidate facts. */
+/** Result of "is this provider usable right now?" — what the Settings page and `npm run ai:check` show. */
+export interface AiHealth {
+  ok: boolean;
+  provider: string;
+  model: string | null;
+  /** One plain sentence: what works, or exactly what to do. */
+  detail: string;
+  latencyMs?: number;
+}
+
+export interface GenerateLinkedInNoteInput {
+  profile: CandidateProfile;
+  input: LinkedInNoteInput;
+  previousProblems?: string[];
+}
+
 export interface AIProvider {
   readonly name: string;
   readonly isLlm: boolean;
+  /** The model in use (null for the deterministic template). */
+  readonly model: string | null;
+  health?(): Promise<AiHealth>;
   analyzeJob(input: AnalyzeJobInput): Promise<AiResult<JobAnalysis>>;
   tailorResume(input: TailorResumeInput): Promise<AiResult<TailoredBullets>>;
   generateEmail(input: GenerateEmailRequest): Promise<AiResult<EmailDraft>>;
   generateFollowup(input: GenerateFollowupInput): Promise<AiResult<EmailDraft>>;
+  generateLinkedInNote(input: GenerateLinkedInNoteInput): Promise<AiResult<{ note: string }>>;
 }
