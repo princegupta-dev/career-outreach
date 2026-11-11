@@ -1,4 +1,4 @@
-import type { JobProviderKind } from '@prisma/client';
+import type { JobProviderKind } from '../../types';
 import { fetchJson, FetchError } from '../http';
 import { htmlToText } from './html-extract';
 import { filterListed, JobProvider, JobProviderError, JobSearchCriteria, parseDate, ProviderJob, warn } from './job-provider.interface';

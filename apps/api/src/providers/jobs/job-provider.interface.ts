@@ -1,5 +1,5 @@
-import type { JobProviderKind } from '@prisma/client';
-import type { ContactCandidate } from '../contacts/contact-provider';
+import type { JobProviderKind } from '../../types';
+import type { ContactCandidate } from '../../types';
 
 /** Normalised job as returned by any provider (before persistence). */
 export interface ProviderJob {
@@ -20,6 +20,8 @@ export interface ProviderJob {
   contacts?: ContactCandidate[];
   /** Verifiable facts about the company, when the source (e.g. a startup directory) reports them. */
   companyMeta?: CompanyMeta;
+  /** Eligibility flags the source itself knows (e.g. `source:email-alert-partial`); added to the ranker's flags. */
+  flags?: string[];
 }
 
 export interface CompanyMeta {

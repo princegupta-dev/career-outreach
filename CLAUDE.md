@@ -1,48 +1,34 @@
 # Job-hunter — project context
 
-Personal career-outreach app for one user (Prince Gupta, Senior Backend Engineer, India). It finds jobs, scores them against his profile, helps prepare an application (tailored resume + email drafts), and tracks follow-ups. **Nothing is ever sent or applied without his explicit approval.**
+Personal career-outreach app for one user (Prince Gupta, Senior Backend Engineer, India). It finds the latest jobs and scores them against his profile. **Nothing is ever sent or applied without his explicit approval.**
 
-## Stack and layout
+## Stack and layout (simplified Nov 2026, branch `simplify`)
 
-Monorepo (npm workspaces), Node 20.12 pinned.
+No database, no Redis/BullMQ, no worker, no auth, no AI. Single user, runs locally.
 
-- `apps/api` — NestJS + Prisma 6 (PostgreSQL) + BullMQ (Redis). Separate API process and worker process.
-- `apps/web` — Next.js 15, SWR, Tailwind.
-- `candidate/` — `candidate-profile.md` (facts about the user; **he edits it, never edit it**) and `resume.tex` (resume content master).
-- Ports: web 3000, API 4000.
-
-API code map (`apps/api/src`):
-- `domain/` — pure logic, no I/O: matching/scoring, applications (state machine, `lifecycle.ts`), preparation steps, resume (`tailor.ts`, `resume-document.ts`), latex parsing, email checks, dedupe, company size.
-- `modules/` — Nest services/controllers: jobs, discovery (+ `directory.service.ts`), applications, preparation (workflow), resume, outreach, followups, ai, queues, profile, settings.
-- `providers/` — external edges: `jobs/` (Greenhouse/Ashby/Lever ATS, aggregators, default sources), `ai/` (anthropic, ollama, template), `documents/` (HTML→PDF), `email/`, `contacts/`.
-
-## How things work (decisions already made)
-
-- **Discovery**: hard eligibility filters vs soft flags. Location is classified by whitelist (india / global / unspecified / restricted). Sources: ATS board probing, aggregators, YC directory dataset. Rejections keep reason codes. Discovery and scoring are deterministic and run before any AI.
-- **Application lifecycle**: additive statuses (never break old ones). "Prepare my application" runs a `PreparationWorkflow` (per-step state, events, compare-and-set claim, heartbeat) on the `job-processing` queue. Each step is attempted once per run.
-- **Resume**: LaTeX source is the content master. Tailoring only re-orders bullets/skills (truth guard; optional AI rephrase). The PDF is drawn from an HTML template with Playwright Chromium (no pdflatex). The PDF is validated (text selectable, all content present, page count). "Gaps" are measured against the resume body text, not the profile.
-- **AI layer**: `AiService.run` is the single entry point: cache by input hash, circuit breaker, fallback to the deterministic template provider. Providers: `template` (default), `ollama` (free, local, JSON-schema output), `anthropic`. Use `provider.model`, not env vars. Errors that are fixable in a minute (e.g. Ollama model not pulled) must be `retryable: true`, or the 30-minute circuit opens. Check with `npm run ai:check` or Settings → "Test AI connection".
-- **Email**: `EMAIL_PROVIDER=sandbox` by default (stored locally, never sent). Gmail only when he opts in. Never invent contact emails.
+- `apps/api` — plain Node `http` server (`src/main.ts`), one route `GET /api/jobs/search?days=N`. `src/search.ts` runs all sources (a few at a time, inside the request), filters, scores, dedupes and returns JSON. `npm run fetch` does the same from the terminal.
+- `apps/web` — Next.js 15, one page (`app/page.tsx`). State lives in browser localStorage (`lib/store.ts`): jobs by stable id, status new/applied/skipped, first-seen time.
+- `candidate/` — `candidate-profile.md` (facts about the user; **he edits it, never edit it**).
+- `apps/api/src/startups.ts` — YC dataset startups (default 50–100 people, India/remote, hiring) → verified Greenhouse/Ashby/Lever boards, cached 14 days in `apps/api/.cache/startup-boards.json`.
+- `apps/api/src/browser/` — job boards via the user's own logged-in Chrome (Playwright `channel: 'chrome'`, persistent profile `~/.job-hunter/chrome-profile`). `npm run login -- <site>`; `npm run fetch -- 7 --sites=default|a,b [--snapshot]`. Read-only, 3–7 s between pages, ≤15 job pages per site. Parses schema.org JobPosting ld+json. LinkedIn/Naukri only when named explicitly. Never store passwords; never use `ignoreHTTPSErrors`.
+- `apps/api/src/apply/` — auto-apply on Naukri, Hirist, Instahyre (`engine.ts`, one config per site). `npm run daily` = search + save + apply; `npm run apply`; `npm run answers`. Per-site switch `~/.job-hunter/settings.json` (off / dry-run / on; default dry-run; "on" is his approval). Guardrails that must stay: daily limit 30, never re-apply (`apps/api/.cache/applied.json`), visible Chrome, 20–40 s between applications, company-site jobs skipped. Answers from `~/.job-hunter/answers.json` (bank from profile + FACTS; his own entries — no source or "you" — always win); never answer gender/DOB/disability; never claim years in a non-strong skill; unknown questions go to `unanswered-questions.json`. Tests must never write his real files (paths are read lazily from env).
+- Shared results: every search (CLI or dashboard) merges into `apps/api/.cache/results.json`; dashboard reads `GET /api/jobs`.
+- Sources (Nov 2026, his choice): company career sites only (Greenhouse/Lever/Ashby lists in `default-sources.ts`, Workday in `providers/jobs/workday.ts`), YC startups 50–100 (`startups.ts`), Indian product companies (`india-companies.ts`, boards found at run time), and browser sites Wellfound/Hirist/Instahyre/Naukri/LinkedIn/Indeed. Public feeds (HN, WWR, Remotive, Himalayas, Jobicy, Remote OK, Arbeitnow) were removed on purpose; do not re-add.
+- Kept pure code: `providers/jobs` (Greenhouse/Lever/Ashby/Workday), `domain/matching`, `domain/skills`, `domain/profile`, `domain/dedupe`.
+- Old full app (DB, queues, resume tailoring, outreach, Gmail alerts) is on `main` and in `git stash` "WIP before simplify".
 
 ## Commands
 
 ```
-npm run dev:api | dev:worker | dev:web
-npm run test                 # unit
-npm run test:integration     # needs job_hunter_test DB + Redis DB 15, runs --runInBand
-npm run test:e2e
-npm run lint && npm run typecheck
-npm run db:migrate | db:deploy | db:seed
-npm run ai:check
+npm run dev:api | dev:web
+npm run fetch -- 7           # terminal search, writes apps/api/jobs.json
+npm run test && npm run lint && npm run typecheck
 ```
 
 ## Gotchas
 
-- After any Prisma schema change, **restart `dev:worker`**; its watcher keeps stale types.
-- jest can hang with watchman; use `--runInBand`/no watch for integration.
-- Migrations must be additive.
-- Known unrelated failing unit tests: `email.spec.ts` (voice check flags "CloudWatch") and `policies.spec.ts` (hardcodes `india_min_lpa` 30 while the profile says 16). Do not "fix" by editing his profile.
-- Dev API/worker are run in sandbox mode: `EMAIL_PROVIDER=sandbox`. Don't override `AI_PROVIDER` on the command line; it beats `.env`.
+- Claude's Bash sandbox intercepts HTTPS to many hosts (Lever, Remotive, Naukri, LinkedIn...). Failures seen from the sandbox are not the user's network; he runs live fetches in his own terminal.
+- Known unrelated failing test was `email.spec.ts`; it was removed with the email module.
 
 ## Working rules
 
@@ -54,8 +40,4 @@ npm run ai:check
 
 ## Status
 
-Resume tailoring with AI: `tailorLatex` can rephrase the plain-text Summary and bullets (truth guard on both) and add skills the user ticked on the job page (`confirmedSkills`, remembered per job). The model never picks skills. The 3B Ollama model mostly copies text back; `qwen2.5:7b` is the better choice.
-
-Done: discovery hardening and expansion, simplified job detail page + prepare workflow, Chromium PDF resumes, accurate resume gaps, Ollama provider.
-
-Awaiting his decision (do not start unprompted): multi-source expansion plan (Common Crawl company discovery, Gmail alert-email ingestion, Hirist, Hunter API key, ranking/observability phases).
+Milestones 1 (simplify), 2 (age window on all sources, title excludes, 50–100 startups) done. Milestone 3 code done; site URL patterns/link regexes need checking against his first `--snapshot` run. Next: (3b) tune per site, (3c) LinkedIn/Naukri/Wellfound/Hirist/Instahyre via a user-logged-in Playwright session (read-only, low volume, never a stored password), (4) recruiter/engineering-manager contacts: public LinkedIn profile links + only published or verified emails.

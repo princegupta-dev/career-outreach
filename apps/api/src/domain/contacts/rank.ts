@@ -1,4 +1,4 @@
-import type { CompanySize, ContactConfidence, ContactRole } from '@prisma/client';
+import type { CompanySize, ContactConfidence, ContactRole } from '../../types';
 
 /** Map a free-text job title to a contact role category. */
 export function categorizeRole(title?: string | null): ContactRole {

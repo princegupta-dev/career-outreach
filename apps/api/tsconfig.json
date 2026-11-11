@@ -3,11 +3,11 @@
     "module": "commonjs",
     "moduleResolution": "node",
     "target": "ES2022",
-    "lib": ["ES2023"],
+    "lib": [
+      "ES2023"
+    ],
     "declaration": false,
     "removeComments": true,
-    "emitDecoratorMetadata": true,
-    "experimentalDecorators": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "sourceMap": true,
@@ -20,7 +20,12 @@
     "noImplicitOverride": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "types": ["node", "jest", "multer"]
+    "types": [
+      "node",
+      "jest"
+    ]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "prisma/**/*.ts"]
+  "include": [
+    "src/**/*.ts"
+  ]
 }

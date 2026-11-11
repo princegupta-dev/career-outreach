@@ -1,4 +1,4 @@
-import type { CompanySize, Recommendation } from '@prisma/client';
+import type { CompanySize, Recommendation } from '../../types';
 import type { CandidateProfile } from '../profile/profile';
 import { JobExtraction, RoleFamily, Seniority, salaryInLpa } from '../skills/extract';
 import { getSkill } from '../skills/taxonomy';

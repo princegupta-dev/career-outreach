@@ -1,4 +1,4 @@
-import type { CompanySize } from '@prisma/client';
+import type { CompanySize } from '../types';
 
 /** Headcount → the size buckets the scorer's company preferences use. */
 export function sizeFromTeam(teamSize?: number | null): CompanySize {

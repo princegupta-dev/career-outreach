@@ -1,6 +1,4 @@
-import { cumulativeDays, relativeDays, resolveSettings } from '../../domain/settings';
 import { FetchError, httpFetch, httpRetry } from '../http';
-import { extractEmails, HimalayasProvider, parseArbeitnow, parseHimalayas, parseHnComment, parseJobicy, parseRemoteOk, parseRemotive, parseWwrRss, WeWorkRemotelyProvider } from './aggregators';
 import { AshbyProvider, GreenhouseProvider, LeverProvider } from './ats.providers';
 import { DEFAULT_EXCLUDE_TITLES, DEFAULT_SOURCES, FLAG_TITLES } from './default-sources';
 import { assessEligibility, basicFilterReason, classifyLocation, classifyPosting, filterListed, JobSearchCriteria, parseDate, passesBasicFilters, remoteRegionOk, titleHas } from './job-provider.interface';
@@ -72,70 +70,17 @@ describe('basic discovery filters', () => {
   });
 });
 
-describe('feed parsers (recorded payload shapes)', () => {
-  it('parses Remotive', () => {
-    const [j] = parseRemotive({
-      jobs: [{ id: 1, url: 'https://remotive.com/remote-jobs/software-dev/backend-1', title: 'Senior Backend Engineer', company_name: 'Acme', candidate_required_location: 'Worldwide', publication_date: '2026-10-01T10:00:00', salary: '$80k - $100k', description: '<p>Node.js and <b>PostgreSQL</b></p>' }],
-    });
-    expect(j).toMatchObject({ provider: 'REMOTIVE', externalId: '1', companyName: 'Acme', location: 'Remote (Worldwide)', remote: true, salaryText: '$80k - $100k' });
-    expect(j.description).toContain('Node.js and PostgreSQL');
-  });
-
-  it('parses Himalayas, Jobicy, Arbeitnow and Remote OK', () => {
-    expect(parseHimalayas({ jobs: [{ guid: 'g1', title: 'Backend Engineer', companyName: 'Beta', locationRestrictions: ['India'], pubDate: 1759700000, description: '<p>Go</p>', applicationLink: 'https://himalayas.app/x' }] })[0]).toMatchObject({ location: 'Remote (India)', externalId: 'g1' });
-    expect(parseJobicy({ jobs: [{ id: 7, url: 'https://jobicy.com/jobs/7', jobTitle: 'Node.js Developer', companyName: 'Gamma', jobGeo: 'APAC', pubDate: '2026-10-02 09:00:00', jobDescription: '<p>x</p>', annualSalaryMin: 50000, annualSalaryMax: 70000, salaryCurrency: 'USD' }] })[0]).toMatchObject({ location: 'Remote (APAC)', salaryText: 'USD 50000 - 70000 per year' });
-    expect(parseArbeitnow({ data: [{ slug: 'a-1', company_name: 'Delta', title: 'Backend Dev', remote: false, url: 'https://arbeitnow.com/a-1', location: 'Berlin', created_at: 1759700000 }] })[0]).toMatchObject({ location: 'Berlin', remote: false });
-    const rok = parseRemoteOk([{ legal: 'API terms' } as never, { id: 9, position: 'Senior Backend Engineer', company: 'Epsilon', location: 'Worldwide', date: '2026-10-03T00:00:00Z', url: 'https://remoteok.com/remote-jobs/9', tags: ['node', 'aws'] }]);
-    expect(rok).toHaveLength(1);
-    expect(rok[0].description).toContain('Tags: node, aws');
-  });
-
-  it('parses a Hacker News "Who is hiring" comment, with the published email as a contact', () => {
-    const job = parseHnComment({
-      objectID: '123',
-      created_at: '2026-10-02T10:00:00Z',
-      comment_text:
-        'Acme Pay (<a href="https:&#x2F;&#x2F;acmepay.io">https:&#x2F;&#x2F;acmepay.io</a>) | Senior Backend Engineer (Node.js) | REMOTE (Worldwide) | Full-time<p>I&#x27;m the CTO. We build payment APIs with Node.js, Postgres and Redis.<p>Email me: jane [at] acmepay [dot] io',
-    })!;
-    expect(job).toMatchObject({ provider: 'HN_HIRING', companyName: 'Acme Pay', title: 'Senior Backend Engineer (Node.js)', remote: true, companyDomain: 'acmepay.io', url: 'https://news.ycombinator.com/item?id=123' });
-    expect(job.location).toContain('REMOTE');
-    expect(job.contacts).toEqual([expect.objectContaining({ email: 'jane@acmepay.io', roleCategory: 'CTO', confidence: 'VERIFIED', source: 'hn_hiring' })]);
-    expect(parseHnComment({ objectID: '1', comment_text: 'Just a reply without pipes' })).toBeNull();
-  });
-
-  it('extracts plain and lightly obfuscated emails, never inventing any', () => {
-    expect(extractEmails('write to jobs@acme.io or bob (at) acme (dot) io')).toEqual(['jobs@acme.io', 'bob@acme.io']);
-    expect(extractEmails('we work at Acme on hard problems')).toEqual([]);
-    expect(extractEmails('contact you@example.com')).toEqual([]);
-  });
-
-  it('parses the We Work Remotely RSS feed', () => {
-    const xml = `<?xml version="1.0"?><rss><channel><item>
-      <title>Zeta Labs: Senior Node.js Engineer</title><region>Anywhere in the World</region><skills>Node.js, AWS</skills><type>Full-Time</type>
-      <description>&lt;p&gt;&lt;strong&gt;URL:&lt;/strong&gt; &lt;a href="https://zeta.dev"&gt;https://zeta.dev&lt;/a&gt;&lt;/p&gt;&lt;p&gt;Build APIs&lt;/p&gt;</description>
-      <pubDate>Thu, 02 Oct 2026 10:00:00 +0000</pubDate><link>https://weworkremotely.com/remote-jobs/zeta-node</link></item></channel></rss>`;
-    const [j] = parseWwrRss(xml);
-    expect(j).toMatchObject({ provider: 'WWR', companyName: 'Zeta Labs', title: 'Senior Node.js Engineer', companyDomain: 'zeta.dev', location: 'Remote (Anywhere in the World)' });
-    expect(j.description).toContain('Skills: Node.js, AWS');
-  });
-});
-
 describe('default sources', () => {
-  it('ships unique, well-formed sources (feeds + company boards with domains)', () => {
+  it('ships unique, well-formed company boards with domains, and no public feeds', () => {
     const keys = DEFAULT_SOURCES.map((s) => `${s.provider}:${s.name}`);
     expect(new Set(keys).size).toBe(keys.length);
     expect(DEFAULT_SOURCES.filter((s) => ['GREENHOUSE', 'ASHBY'].includes(s.provider)).every((s) => s.config.boardToken && s.config.domain)).toBe(true);
-    expect(DEFAULT_SOURCES.length).toBeGreaterThan(30);
+    expect(DEFAULT_SOURCES.filter((s) => s.provider === 'WORKDAY').every((s) => s.config.workday?.host.startsWith('https://') && s.config.workday.site && s.config.companyName)).toBe(true);
+    expect(DEFAULT_SOURCES.length).toBeGreaterThan(70);
+    expect(DEFAULT_SOURCES.every((s) => ['GREENHOUSE', 'LEVER', 'ASHBY', 'WORKDAY'].includes(s.provider))).toBe(true);
   });
 });
 
-describe('follow-up cadence', () => {
-  it('defaults to day 4, 9 and 16 after the first email', () => {
-    expect(cumulativeDays(resolveSettings({}).followups.delaysDays)).toEqual([4, 9, 16]);
-    expect(relativeDays([4, 9, 16])).toEqual([4, 5, 7]);
-    expect(relativeDays([16, 4, 9])).toEqual([4, 5, 7]);
-  });
-});
 
 
 // ─── Regression tests for defects found by the Phase 1 discovery audit ──────────
@@ -223,7 +168,7 @@ describe('explainable rejections', () => {
 
   it('filterListed counts what it listed and why it dropped the rest', () => {
     const stats = { fetched: 0 } as NonNullable<JobSearchCriteria['stats']>;
-    const mk = (title: string, location = 'Remote (Worldwide)') => ({ provider: 'REMOTIVE' as const, title, companyName: 'Acme', location, remote: true, description: 'x'.repeat(60), postedAt: new Date() });
+    const mk = (title: string, location = 'Remote (Worldwide)') => ({ provider: 'GREENHOUSE' as const, title, companyName: 'Acme', location, remote: true, description: 'x'.repeat(60), postedAt: new Date() });
     const kept = filterListed([mk('Senior Backend Engineer'), mk('Frontend Software Engineer'), mk('Software Engineer, iOS'), mk('Backend Engineer', 'Remote (Italy)')], { ...fullCriteria, stats });
     expect(kept).toHaveLength(1);
     expect(stats).toEqual({ fetched: 4, rejected: { 'title:excluded': 2, 'region:remote-not-india-compatible': 1 } });
@@ -232,37 +177,15 @@ describe('explainable rejections', () => {
 
 describe('date parsing', () => {
   it('parses every format the sources really use, and never returns an Invalid Date', () => {
-    expect(parseDate('Wed, 21 Oct 2026 13:46:32 +0000')?.toISOString()).toBe('2026-10-21T13:46:32.000Z'); // RSS (We Work Remotely)
+    expect(parseDate('Wed, 21 Oct 2026 13:46:32 +0000')?.toISOString()).toBe('2026-10-21T13:46:32.000Z'); // RSS date format
     expect(parseDate('2026-10-02T09:00:00Z')?.toISOString()).toBe('2026-10-02T09:00:00.000Z');
-    expect(parseDate('2026-10-02 09:00:00')).toBeInstanceOf(Date); // Jobicy
+    expect(parseDate('2026-10-02 09:00:00')).toBeInstanceOf(Date);
     expect(parseDate(1759700000)?.getUTCFullYear()).toBe(2025); // epoch seconds
     expect(parseDate('1759700000')?.getUTCFullYear()).toBe(2025); // epoch seconds as string
     expect(parseDate(1759700000000)?.getUTCFullYear()).toBe(2025); // epoch millis
     for (const bad of ['garbage', '', null, undefined, '0000-00-00', NaN]) expect([bad, parseDate(bad)]).toEqual([bad, null]);
   });
 
-  it('We Work Remotely items keep their publication date (the 30-day filter needs it)', () => {
-    const xml = '<rss><channel><item><title>Zeta: Backend Engineer</title><pubDate>Wed, 21 Oct 2026 13:46:32 +0000</pubDate><link>https://x/1</link><description>d</description></item></channel></rss>';
-    expect(parseWwrRss(xml)[0].postedAt?.toISOString()).toBe('2026-10-21T13:46:32.000Z');
-    const stale = xml.replace('21 Oct 2026', '01 Aug 2026');
-    expect(passesBasicFilters(parseWwrRss(stale)[0], { ...fullCriteria, locations: [], includeRemote: false }, now)).toBe(false);
-  });
-});
-
-describe('Hacker News header parsing', () => {
-  it('does not take the company pitch for a location (it could trip the region filter)', () => {
-    const j = parseHnComment({
-      objectID: '5',
-      created_at: '2026-10-02T10:00:00Z',
-      comment_text: 'Acme | Backend Engineer | Remote | We build payment rails for US banks and credit unions<p>Apply: jobs@acme.io',
-    })!;
-    expect(j.location).toBe('Remote');
-    expect(passesBasicFilters(j, { ...fullCriteria, titleKeywords: ['backend engineer'] }, now)).toBe(true);
-    const k = parseHnComment({ objectID: '6', created_at: '2026-10-02T10:00:00Z', comment_text: 'Acme | Backend Engineer | Bangalore | Our business is growing<p>jobs@acme.io' })!;
-    expect(k.location).toBe('Bangalore');
-    const l = parseHnComment({ objectID: '7', created_at: '2026-10-02T10:00:00Z', comment_text: 'Acme | Backend Engineer | Remote (Global) · https://acme.io/jobs Acme is a nonprofit<p>jobs@acme.io' })!;
-    expect(l.location).toBe('Remote'); // the link fragment is dropped; the header still says remote
-  });
 });
 
 describe('providers against mocked upstreams', () => {
@@ -314,48 +237,6 @@ describe('providers against mocked upstreams', () => {
     expect(stats.warnings).toEqual(expect.arrayContaining([expect.stringMatching(/20 matching postings beyond the newest 80/), expect.stringMatching(/1 of 80 job details failed/)]));
   });
 
-  it('Himalayas pages by the size the server reports (it caps pages at 20 whatever ?limit says)', async () => {
-    jest.spyOn(global, 'fetch').mockImplementation(async (i) => {
-      const u = urlOf(i);
-      urls.push(u);
-      const offset = Number(new URL(u).searchParams.get('offset'));
-      return json({ limit: 20, offset, jobs: Array.from({ length: 20 }, (_, k) => ({ guid: `g${offset + k}`, title: 'Backend Engineer', companyName: 'C', description: jd, pubDate: Math.floor(Date.now() / 1000) })) });
-    });
-    const out = await new HimalayasProvider().searchJobs({ ...fullCriteria, locations: [], includeRemote: false });
-    expect(urls.map((u) => Number(new URL(u).searchParams.get('offset'))).sort((a, b) => a - b)).toEqual([0, 20, 40, 60, 80, 100, 120, 140, 160, 180]);
-    expect(new Set(out.map((j) => j.externalId)).size).toBe(200); // contiguous, no gaps
-  });
-
-  it('Himalayas reports pages that failed instead of silently returning fewer jobs', async () => {
-    jest.spyOn(global, 'fetch').mockImplementation(async (i) => {
-      const offset = Number(new URL(urlOf(i)).searchParams.get('offset'));
-      return offset === 60 ? json({}, 500) : json({ limit: 20, jobs: [{ guid: `g${offset}`, title: 'Backend Engineer', companyName: 'C', description: jd }] });
-    });
-    const stats = { fetched: 0 } as NonNullable<JobSearchCriteria['stats']>;
-    const out = await new HimalayasProvider().searchJobs({ ...fullCriteria, locations: [], includeRemote: false, stats });
-    expect(out).toHaveLength(9);
-    expect(stats.warnings).toEqual([expect.stringMatching(/Himalayas: 1 of 10 pages failed/)]);
-  });
-
-  it('Arbeitnow pages larger than the default 3 MB response cap are still read (page 1 is ~4 MB in production)', async () => {
-    const bigPage = (page: number) => json({ data: Array.from({ length: 300 }, (_, i) => ({ slug: `p${page}-${i}`, company_name: 'C', title: 'Backend Engineer', remote: true, location: 'Anywhere', url: 'u', description: 'x'.repeat(11_000), created_at: Math.floor(Date.now() / 1000) })) });
-    jest.spyOn(global, 'fetch').mockImplementation(async (i) => bigPage(Number(new URL(urlOf(i)).searchParams.get('page'))));
-    const stats = { fetched: 0 } as NonNullable<JobSearchCriteria['stats']>;
-    const { ArbeitnowProvider } = await import('./aggregators');
-    const out = await new ArbeitnowProvider().searchJobs({ ...fullCriteria, locations: [], includeRemote: false, limit: 1000, stats });
-    expect(stats.fetched).toBe(600);
-    expect(stats.warnings).toBeUndefined();
-    expect(out).toHaveLength(600);
-  });
-
-  it('We Work Remotely reports feeds that failed while others worked', async () => {
-    const rss = `<rss><channel><item><title>Zeta: Senior Backend Engineer</title><region>Anywhere in the World</region><description>${jd.replace(/</g, '&lt;')}</description><pubDate>${new Date().toUTCString()}</pubDate><link>https://wwr/z1</link></item></channel></rss>`;
-    jest.spyOn(global, 'fetch').mockImplementation(async (i) => (urlOf(i).includes('back-end') ? new Response(rss, { status: 200 }) : new Response('boom', { status: 500 })));
-    const stats = { fetched: 0 } as NonNullable<JobSearchCriteria['stats']>;
-    const out = await new WeWorkRemotelyProvider().searchJobs({ ...fullCriteria, stats });
-    expect(out).toHaveLength(1);
-    expect(stats.warnings).toEqual([expect.stringMatching(/2 of 3 feeds failed.*HTTP 500/)]);
-  });
 });
 
 describe('transient upstream failures are retried (and permanent ones are not)', () => {
@@ -498,7 +379,7 @@ describe('posting age: company boards vs feeds', () => {
     expect(assessEligibility(out[0], { ...fullCriteria, staleAfterDays: 30 }, now).flags).toContain('age:older-than-30d');
   });
 
-  it('aggregator feeds still drop stale postings (they keep dead listings around)', () => {
+  it('the age filter drops stale postings', () => {
     expect(basicFilterReason(job({ postedAt: new Date('2026-08-01') }), { ...fullCriteria, postedWithinDays: 30 }, now)).toBe('age:too-old');
   });
 });

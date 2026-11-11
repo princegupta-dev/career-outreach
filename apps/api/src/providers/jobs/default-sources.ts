@@ -1,26 +1,19 @@
-import type { JobProviderKind } from '@prisma/client';
+import type { JobProviderKind } from '../../types';
+import type { WorkdayConfig } from './workday';
 
 export interface DefaultSource {
   provider: JobProviderKind;
   name: string;
-  config: { boardToken?: string; companyName?: string; domain?: string };
+  config: { boardToken?: string; companyName?: string; domain?: string; teamSize?: number; workday?: WorkdayConfig };
 }
 
 /**
  * Sources seeded automatically so discovery works out of the box.
- * Public aggregator feeds + company job boards (Greenhouse/Ashby public APIs)
+ * Company job boards (Greenhouse/Ashby/Lever public APIs)
  * that were verified (Oct 2026) to list backend roles open in India or remote.
  * Users can disable any of them or add their own in Settings.
  */
 export const DEFAULT_SOURCES: DefaultSource[] = [
-  // Public aggregator feeds
-  { provider: 'HN_HIRING', name: 'Hacker News — Who is hiring', config: {} },
-  { provider: 'WWR', name: 'We Work Remotely', config: {} },
-  { provider: 'REMOTIVE', name: 'Remotive', config: {} },
-  { provider: 'HIMALAYAS', name: 'Himalayas', config: {} },
-  { provider: 'JOBICY', name: 'Jobicy', config: {} },
-  { provider: 'REMOTEOK', name: 'Remote OK', config: {} },
-  { provider: 'ARBEITNOW', name: 'Arbeitnow', config: {} },
 
   // Company boards — India offices / India-friendly remote
   ...(
@@ -65,8 +58,55 @@ export const DEFAULT_SOURCES: DefaultSource[] = [
       ['ASHBY', 'ramp', 'Ramp', 'ramp.com'],
       ['ASHBY', 'notion', 'Notion', 'notion.so'],
       ['ASHBY', 'linear', 'Linear', 'linear.app'],
+
+      // Added Nov 2026: boards verified to name the company and to list jobs in India / open to India.
+      ['GREENHOUSE', 'zscaler', 'Zscaler', 'zscaler.com'],
+      ['GREENHOUSE', 'datadog', 'Datadog', 'datadoghq.com'],
+      ['GREENHOUSE', 'fivetran', 'Fivetran', 'fivetran.com'],
+      ['GREENHOUSE', 'highradius', 'HighRadius', 'highradius.com'],
+      ['GREENHOUSE', 'sigmoid', 'Sigmoid', 'sigmoid.com'],
+      ['GREENHOUSE', 'devrev', 'DevRev', 'devrev.ai'],
+      ['GREENHOUSE', 'neo4j', 'Neo4j', 'neo4j.com'],
+      ['GREENHOUSE', 'netskope', 'Netskope', 'netskope.com'],
+      ['GREENHOUSE', 'jfrog', 'JFrog', 'jfrog.com'],
+      ['GREENHOUSE', 'agoda', 'Agoda', 'agoda.com'],
+      ['GREENHOUSE', 'commvault', 'Commvault', 'commvault.com'],
+      ['GREENHOUSE', 'pagerduty', 'PagerDuty', 'pagerduty.com'],
+      ['GREENHOUSE', 'singlestore', 'SingleStore', 'singlestore.com'],
+      ['GREENHOUSE', 'observeai', 'Observe.AI', 'observe.ai'],
+      ['GREENHOUSE', 'yugabyte', 'YugabyteDB', 'yugabyte.com'],
+      ['GREENHOUSE', 'fastly', 'Fastly', 'fastly.com'],
+      ['GREENHOUSE', 'intercom', 'Intercom', 'intercom.com'],
+      ['GREENHOUSE', 'cockroachlabs', 'Cockroach Labs', 'cockroachlabs.com'],
+      ['GREENHOUSE', 'slice', 'Slice', 'sliceit.com'],
+      ['ASHBY', 'snowflake', 'Snowflake', 'snowflake.com'],
+      ['ASHBY', 'tekion', 'Tekion', 'tekion.com'],
+      ['ASHBY', 'redis', 'Redis', 'redis.io'],
+      ['ASHBY', 'spotdraft', 'SpotDraft', 'spotdraft.com'],
+      ['ASHBY', 'airbyte', 'Airbyte', 'airbyte.com'],
     ] as Array<[JobProviderKind, string, string, string]>
   ).map(([provider, boardToken, companyName, domain]) => ({ provider, name: companyName, config: { boardToken, companyName, domain } })),
+
+  // Company career sites on Workday (no Greenhouse/Lever/Ashby). Verified Nov 2026 to list backend jobs in India.
+  ...(
+    [
+      ['salesforce', 'wd12', 'External_Career_Site', 'Salesforce', 'salesforce.com'],
+      ['adobe', 'wd5', 'external_experienced', 'Adobe', 'adobe.com'],
+      ['paypal', 'wd1', 'jobs', 'PayPal', 'paypal.com'],
+      ['nvidia', 'wd5', 'NVIDIAExternalCareerSite', 'NVIDIA', 'nvidia.com'],
+      ['mastercard', 'wd1', 'CorporateCareers', 'Mastercard', 'mastercard.com'],
+      ['intel', 'wd1', 'External', 'Intel', 'intel.com'],
+      ['target', 'wd5', 'targetcareers', 'Target', 'target.com'],
+      ['broadcom', 'wd1', 'External_Career', 'Broadcom', 'broadcom.com'],
+      ['hp', 'wd5', 'ExternalCareerSite', 'HP', 'hp.com'],
+      ['citi', 'wd5', '2', 'Citi', 'citi.com'],
+      ['db', 'wd3', 'DBWebsite', 'Deutsche Bank', 'db.com'],
+    ] as Array<[string, string, string, string, string]>
+  ).map(([tenant, wd, site, companyName, domain]): DefaultSource => ({
+    provider: 'WORKDAY',
+    name: companyName,
+    config: { companyName, domain, workday: { host: `https://${tenant}.${wd}.myworkdayjobs.com`, tenant, site } },
+  })),
 ];
 
 /**
@@ -83,6 +123,8 @@ export const DEFAULT_EXCLUDE_TITLES = [
   'mechanical', 'electrical', 'electronics', 'electronic', 'civil', 'chemical', 'manufacturing', 'optical', 'aerospace', 'mechatronics', 'thermal', 'structural', 'industrial', 'materials', 'process engineer', 'field engineer', 'validation', 'asic', 'fpga', 'analog', 'pcb',
   'new grad', 'new-grad', 'newgrad', 'graduate', 'early career', 'early-career', 'junior', 'jr', 'entry level', 'entry-level', 'fresher', 'university', 'campus',
   'research', 'firmware', 'embedded', 'hardware', 'game', 'unity', 'salesforce', 'sap', 'flutter', 'swift',
+  'customer experience', 'interviewer', 'netsuite', 'security engineer', 'technical services', 'new grads', 'product engineer (pm)', 'quality assurance',
+  'devops', 'site reliability', 'sre', 'service desk', 'solution engineer', 'architect', 'field service', 'controls engineer', 'data engineer', 'spark developer', 'c++', 'rust', 'physical design',
 ];
 
 /**
