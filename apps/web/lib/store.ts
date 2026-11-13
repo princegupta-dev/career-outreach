@@ -32,6 +32,10 @@ export interface Job {
   contacts: Contact[];
   /** Set by the server's shared results file: when any run (terminal or dashboard) first found this job. */
   firstSeenAt?: string;
+  /** The job description (first 4000 characters). */
+  description?: string;
+  /** The day `npm run discover` picked this job for you (absent for jobs from other searches). */
+  shownOn?: string;
 }
 
 export interface StoredJob extends Job {
@@ -90,4 +94,22 @@ export function save(state: State): void {
   } catch {
     // Storage full or blocked (private window): the page still works for this visit.
   }
+}
+
+export interface Filters {
+  /** 'all', or 'picks' (every job discover picked), or a day 'YYYY-MM-DD' (that day's picks). */
+  picks: string;
+  minScore: number;
+  /** Only jobs posted within this many days (0 = any). Undated jobs are kept: their date is unknown, not old. */
+  postedWithinDays: number;
+}
+
+export const NO_FILTERS: Filters = { picks: 'all', minScore: 0, postedWithinDays: 0 };
+
+export function matchesFilters(j: Job, f: Filters, now = new Date()): boolean {
+  if (f.picks === 'picks' && !j.shownOn) return false;
+  if (f.picks !== 'all' && f.picks !== 'picks' && j.shownOn !== f.picks) return false;
+  if (j.score < f.minScore) return false;
+  if (f.postedWithinDays && j.postedAt && now.getTime() - Date.parse(j.postedAt) > f.postedWithinDays * 86_400_000) return false;
+  return true;
 }

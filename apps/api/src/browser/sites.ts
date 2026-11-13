@@ -1,6 +1,6 @@
 import type { ProviderJob } from '../providers/jobs/job-provider.interface';
 import type { JobProviderKind } from '../types';
-import { parseHiristItemList, parseHiristSearch, parseNaukriSearch, parseWellfoundSearch } from './parsers';
+import { parseHiristItemList, parseHiristSearch, parseInstahyreSearch, parseNaukriSearch, parseWellfoundSearch } from './parsers';
 
 /**
  * Job boards read through the user's own logged-in Chrome session (see `npm run login`).
@@ -27,6 +27,8 @@ export interface Site {
   headed?: boolean;
   /** The site's own data requests that carry the job list (read from what the browser already received). */
   dataUrl?: RegExp;
+  /** More result pages, fetched from inside the logged-in page the way the site's own "load more" does (same cookies). */
+  morePages?: string[];
   parseData?(body: string, now: Date): ProviderJob[];
   /** Turn a job link into its clean, stable URL (default: drop the query string). Return null to skip the link. */
   jobUrl?(href: string): string | null;
@@ -59,6 +61,8 @@ export const SITES: Site[] = [
     jobLink: /hirist\.tech\/j\//,
     isWall: wall,
     ready: '.joblist-card-v2',
+    // Run headless, Hirist stopped requesting its job list (seen in snapshots: ads and courses load, jobs never do).
+    headed: true,
     // Cards when they rendered (location, skills, date); otherwise the always-present ItemList.
     parseSearch: (html, now) => {
       const cards = parseHiristSearch(html, now);
@@ -71,10 +75,17 @@ export const SITES: Site[] = [
     name: 'Instahyre',
     provider: 'INSTAHYRE',
     loginUrl: 'https://www.instahyre.com/login/',
-    searchUrls: (kw) => kw.map((k) => `https://www.instahyre.com/search-jobs/?q=${q(k)}&years=3`),
+    // Instahyre filters by job function, not free text (a q= parameter is ignored and the landing list is shown).
+    // 10 = "Backend Development" (from Instahyre's own /api/v1/job_function list).
+    searchUrls: () => ['https://www.instahyre.com/search-jobs/?job_functions=10&years=3'],
     jobLink: /instahyre\.com\/job-\d+/,
     isWall: wall,
     headed: true,
+    ready: 'a[href*="/job-"]',
+    dataUrl: /instahyre\.com\/api\/v1\/job_search\?/,
+    parseData: (body) => parseInstahyreSearch(body),
+    morePages: [20, 40].map((o) => `/api/v1/job_search?job_functions=10&years=3&job_type=0&company_size=0&limit=20&offset=${o}`),
+    detailPages: false,
   },
   {
     key: 'naukri',
@@ -111,19 +122,9 @@ export const SITES: Site[] = [
       return jk && /^[a-f0-9]{8,}$/i.test(jk) ? `https://in.indeed.com/viewjob?jk=${jk}` : null;
     },
   },
-  {
-    key: 'linkedin',
-    name: 'LinkedIn',
-    provider: 'LINKEDIN',
-    loginUrl: 'https://www.linkedin.com/login',
-    // f_TPR=r<seconds>: posted within that time. sortBy=DD: newest first.
-    searchUrls: (kw, days) => kw.map((k) => `https://www.linkedin.com/jobs/search/?keywords=${q(k)}&location=India&f_TPR=r${days * 86_400}&sortBy=DD`),
-    jobLink: /linkedin\.com\/jobs\/view\/\d+/,
-    isWall: wall,
-  },
 ];
 
-/** The lower-risk boards. LinkedIn and Naukri run only when named explicitly. */
+/** The lower-risk boards. Naukri and Indeed run only when named explicitly. (LinkedIn is a normal source: public search, no login.) */
 export const DEFAULT_SITE_KEYS = ['wellfound', 'hirist', 'instahyre'];
 
 export const SEARCH_KEYWORDS = ['node.js backend developer', 'backend engineer'];

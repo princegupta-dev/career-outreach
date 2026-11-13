@@ -21,6 +21,9 @@
     "login": "npm run login -w apps/api --",
     "apply": "npm run apply -w apps/api --",
     "answers": "npm run answers -w apps/api --",
-    "daily": "npm run daily -w apps/api --"
+    "daily": "npm run daily -w apps/api --",
+    "report": "npm run report -w apps/api --",
+    "discover": "npm run discover -w apps/api --",
+    "start": "node scripts/start.mjs"
   }
 }

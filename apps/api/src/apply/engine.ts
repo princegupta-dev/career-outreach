@@ -16,6 +16,8 @@ export interface ApplySite {
   already: RegExp;
   external?: RegExp;
   success: RegExp;
+  /** Element ids/selectors the site uses for these controls, tried before matching by name. */
+  ids?: { apply?: string; already?: string; external?: string };
 }
 
 export const APPLY_SITES: Record<ApplySite['key'], ApplySite> = {
@@ -26,6 +28,8 @@ export const APPLY_SITES: Record<ApplySite['key'], ApplySite> = {
     already: /^\s*applied\s*$/i,
     external: /apply on company (site|website)|company site/i,
     success: /successfully applied|you have applied|applied successfully|application (has been )?(sent|submitted)/i,
+    // Seen on real Naukri job pages (Nov 2026): <span id="already-applied">Applied</span> inside the apply area.
+    ids: { apply: '#apply-button', already: '#already-applied', external: '#company-site-button' },
   },
   hirist: {
     key: 'hirist',
@@ -149,10 +153,14 @@ export async function applyOnSite(page: Page, site: ApplySite, job: { id: string
   if (WALL.test(await page.title()) || /nlogin|\/login/.test(page.url())) return { status: 'failed', note: `Not logged in to ${site.name}. Run: npm run login -- ${site.key}` };
   if (ctx.dryRun) await snapshot(page, site.key, `${id}-job`);
 
-  if (await visible(page.getByRole('button', { name: site.already }))) return { status: 'already-applied' };
-  const apply = await visible(page.getByRole('button', { name: site.apply }).or(page.getByRole('link', { name: site.apply })));
+  // "Applied" is often a plain label, not a button: look for the site's id, a button, or any element saying exactly that.
+  const already = page.getByRole('button', { name: site.already }).or(page.getByText(site.already));
+  if (await visible(site.ids?.already ? page.locator(site.ids.already).or(already) : already)) return { status: 'already-applied' };
+  const byName = page.getByRole('button', { name: site.apply }).or(page.getByRole('link', { name: site.apply }));
+  const apply = await visible(site.ids?.apply ? page.locator(site.ids.apply).or(byName) : byName);
   if (!apply) {
-    const external = site.external ? await visible(page.getByRole('button', { name: site.external }).or(page.getByRole('link', { name: site.external }))) : null;
+    const extByName = site.external ? page.getByRole('button', { name: site.external }).or(page.getByRole('link', { name: site.external })) : null;
+    const external = extByName ? await visible(site.ids?.external ? page.locator(site.ids.external).or(extByName) : extByName) : null;
     return external ? { status: 'external', note: 'Applies on the company website' } : { status: 'no-button', note: 'No Apply button (closed job, or the page changed)' };
   }
   if (ctx.dryRun) return { status: 'dry-run', note: 'Apply button found; not clicked' };
@@ -162,7 +170,7 @@ export async function applyOnSite(page: Page, site: ApplySite, job: { id: string
   const answered = await answerQuestions(page, site, job, ctx);
   if (answered) return answered;
   if (site.success.test(await page.locator('body').innerText().catch(() => ''))) return { status: 'applied' };
-  if (await visible(page.getByRole('button', { name: site.already }))) return { status: 'applied' };
+  if (await visible(page.getByRole('button', { name: site.already }).or(page.getByText(site.already)))) return { status: 'applied' };
   await snapshot(page, site.key, `${id}-after-click`);
   return { status: 'failed', note: 'Clicked Apply but saw no confirmation; check the job on the site (snapshot saved)' };
 }

@@ -14,6 +14,8 @@ export interface DefaultSource {
  * Users can disable any of them or add their own in Settings.
  */
 export const DEFAULT_SOURCES: DefaultSource[] = [
+  // LinkedIn's public job search (no login; see providers/jobs/linkedin.ts).
+  { provider: 'LINKEDIN', name: 'LinkedIn', config: {} },
 
   // Company boards — India offices / India-friendly remote
   ...(

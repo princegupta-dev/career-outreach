@@ -3,7 +3,7 @@ import { DEFAULT_SITE_KEYS, jobLinks, SITES, sitesByKey } from './sites';
 const site = (k: string) => SITES.find((s) => s.key === k)!;
 
 describe('sites', () => {
-  it('runs only the lower-risk boards by default; LinkedIn and Naukri must be named', () => {
+  it('runs only the lower-risk boards by default; Naukri and Indeed must be named', () => {
     expect(DEFAULT_SITE_KEYS).toEqual(['wellfound', 'hirist', 'instahyre']);
   });
 
@@ -11,24 +11,23 @@ describe('sites', () => {
     expect(() => sitesByKey(['monster'])).toThrow(/Unknown site\(s\): monster\. Known: wellfound/);
   });
 
-  it('asks LinkedIn and Naukri for jobs within the age window', () => {
-    expect(site('linkedin').searchUrls(['backend engineer'], 7)[0]).toContain('f_TPR=r604800');
+  it('asks Naukri for jobs within the age window', () => {
     expect(site('naukri').searchUrls(['node.js backend developer'], 7)[0]).toBe('https://www.naukri.com/node-js-backend-developer-jobs?k=node.js%20backend%20developer&experience=3&jobAge=7');
   });
 
   it('keeps each job link once, without tracking parameters, up to the cap', () => {
     const hrefs = [
-      'https://www.linkedin.com/jobs/view/111?refId=abc&trk=x',
-      'https://www.linkedin.com/jobs/view/111?refId=other',
-      'https://www.linkedin.com/company/acme',
-      'https://www.linkedin.com/jobs/view/222',
-      'https://www.linkedin.com/jobs/view/333',
+      'https://www.naukri.com/job-listings-backend-111?src=jobsearchDesk&sid=abc',
+      'https://www.naukri.com/job-listings-backend-111?src=other',
+      'https://www.naukri.com/acme-jobs-careers-1',
+      'https://www.naukri.com/job-listings-backend-222',
+      'https://www.naukri.com/job-listings-backend-333',
     ];
-    expect(jobLinks(hrefs, site('linkedin'), 2)).toEqual(['https://www.linkedin.com/jobs/view/111', 'https://www.linkedin.com/jobs/view/222']);
+    expect(jobLinks(hrefs, site('naukri'), 2)).toEqual(['https://www.naukri.com/job-listings-backend-111', 'https://www.naukri.com/job-listings-backend-222']);
   });
 
   it('recognises login and security walls', () => {
-    expect(site('linkedin').isWall('https://www.linkedin.com/authwall?x', 'LinkedIn')).toBe(true);
+    expect(site('wellfound').isWall('https://wellfound.com/login?x', 'Wellfound')).toBe(true);
     expect(site('naukri').isWall('https://www.naukri.com/jobs', 'Access Denied')).toBe(true);
     expect(site('naukri').isWall('https://www.naukri.com/node-js-jobs', 'Node Js Jobs')).toBe(false);
   });

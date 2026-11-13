@@ -109,7 +109,7 @@ describe('settings (your per-site auto-apply switch)', () => {
 const job = (id: string, over: Partial<StoredFoundJob> = {}): StoredFoundJob => ({
   id, title: 'Backend Engineer', company: 'Acme', companyDomain: null, location: 'Gurugram', remote: null, url: `https://www.naukri.com/job-listings-${id}`,
   postedAt: '2026-11-10T00:00:00.000Z', source: 'NAUKRI', salaryText: null, teamSize: null, score: 75, recommendation: 'APPLY', reasons: [], missingSkills: [],
-  flags: [], contacts: [], firstSeenAt: '2026-11-10T00:00:00.000Z', lastSeenAt: '2026-11-10T00:00:00.000Z', ...over,
+  flags: [], contacts: [], description: '', firstSeenAt: '2026-11-10T00:00:00.000Z', lastSeenAt: '2026-11-10T00:00:00.000Z', ...over,
 });
 const now = new Date('2026-11-11T15:00:00');
 const entry = (jobId: string, status: ApplyLog[string]['status'], at = now.toISOString()) => ({ jobId, url: '', title: '', company: '', status, at });
@@ -149,6 +149,9 @@ const hasChrome = fs.existsSync('/Applications/Google Chrome.app') || fs.existsS
   const PAGES: Record<string, string> = {
     '/simple': `<title>Job</title><button onclick="fetch('/hit/simple');${done}">Apply</button>`,
     '/already': `<title>Job</title><button disabled>Applied</button>`,
+    // Real Naukri markup (Nov 2026): "Applied" is a span in the apply area, not a button.
+    '/already-span': `<title>Job</title><div class="apply-button-container"><span id="already-applied" class="already-applied">Applied</span></div><p>Applicants: 100+</p>`,
+    '/by-id': `<title>Job</title><div id="apply-button" role="presentation" onclick="fetch('/hit/by-id');${done}">Apply</div>`,
     '/external': `<title>Job</title><button>Apply on company site</button>`,
     '/closed': `<title>Job</title><p>This job is no longer accepting applications</p>`,
     '/text': `<title>Job</title><button onclick="document.getElementById('q').style.display='block'">Apply</button>
@@ -193,12 +196,17 @@ const hasChrome = fs.existsSync('/Applications/Google Chrome.app') || fs.existsS
     expect(await apply('/simple')).toEqual({ status: 'applied' });
     expect(hits).toEqual(['simple']);
   }, 30_000);
+  it('finds the Apply control by the site\'s id even when it is not a button', async () => {
+    expect(await apply('/by-id')).toEqual({ status: 'applied' });
+    expect(hits).toEqual(['by-id']);
+  }, 30_000);
   it('does not click anything in a dry run', async () => {
     expect((await apply('/simple', true)).status).toBe('dry-run');
     expect(hits).toEqual([]);
   }, 30_000);
   it('recognises jobs already applied to, company-site jobs and closed jobs', async () => {
     expect((await apply('/already')).status).toBe('already-applied');
+    expect((await apply('/already-span')).status).toBe('already-applied');
     expect((await apply('/external')).status).toBe('external');
     expect((await apply('/closed')).status).toBe('no-button');
   }, 60_000);

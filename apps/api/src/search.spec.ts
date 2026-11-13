@@ -55,6 +55,8 @@ describe('HTTP API', () => {
       search: async (o) => (calls.push(o), run),
       save: (r) => (store = { updatedAt: r.ranAt, jobs: Object.fromEntries(r.jobs.map((j) => [j.id, { ...j, firstSeenAt: r.ranAt, lastSeenAt: r.ranAt }])) }) as never,
       load: () => store as never,
+      history: () => ({ jobs: { [run.jobs[0].id]: { key: 'k', shownOn: '2026-11-12', source: 'GREENHOUSE', title: 't', company: 'c', score: 80 } } }),
+      insights: () => ({ jobsAnalysed: 1 }) as never,
     }).listen(0);
     await new Promise((r) => server.once('listening', r));
     const { port } = server.address() as AddressInfo;
@@ -66,6 +68,9 @@ describe('HTTP API', () => {
       const all = (await (await fetch(`http://127.0.0.1:${port}/api/jobs`)).json()) as { updatedAt: string; jobs: Array<{ id: string; firstSeenAt: string }> };
       expect(all.updatedAt).toBe('2026-11-11T00:00:00.000Z');
       expect(all.jobs.map((j) => j.id)).toEqual([run.jobs[0].id]);
+      expect((all.jobs[0] as unknown as { shownOn: string }).shownOn).toBe('2026-11-12');
+      expect(await (await fetch(`http://127.0.0.1:${port}/api/insights`)).json()).toEqual({ jobsAnalysed: 1 });
+      expect(await (await fetch(`http://127.0.0.1:${port}/api/stats`)).json()).toEqual([{ day: '2026-11-12', total: 1, bySource: { GREENHOUSE: 1 }, avgScore: 80 }]);
       expect((await fetch(`http://127.0.0.1:${port}/api/nope`)).status).toBe(404);
     } finally {
       server.close();

@@ -19,15 +19,18 @@ describe('deterministic job scoring', () => {
 
   it('marks adjacent technologies as partial and unknown ones as missing', () => {
     expect(classifySkill('Kafka', profile)).toMatchObject({ level: 'partial' });
-    expect(classifySkill('Kubernetes', profile)).toMatchObject({ level: 'partial', via: expect.stringContaining('Docker') });
+    // Kubernetes is listed as partial in the profile (added from the resume, Nov 2026).
+    expect(classifySkill('Kubernetes', profile)).toMatchObject({ level: 'partial' });
     expect(classifySkill('Cassandra', profile)).toEqual({ level: 'missing' });
     expect(classifySkill('SQL', profile)).toMatchObject({ level: 'strong' });
   });
 
   it('never treats missing skills as matches', () => {
     const r = score('Senior Java Engineer', JAVA_JD, { location: 'Berlin, Germany' });
-    expect(r.missing).toEqual(expect.arrayContaining(['Java', 'Spring', 'Cassandra']));
+    expect(r.missing).toEqual(expect.arrayContaining(['Spring', 'Cassandra']));
+    // Java is on the resume but only as a listed language: partial, never strong.
     expect(r.strong).not.toContain('Java');
+    expect(r.partial).toContain('Java');
     expect(['SKIP', 'LOW_PRIORITY']).toContain(r.recommendation);
   });
 

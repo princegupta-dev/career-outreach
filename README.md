@@ -13,9 +13,12 @@ A personal tool that finds the latest jobs that fit your profile. No database, n
 
 ```bash
 npm install
-npm run dev:api     # http://127.0.0.1:4000
-npm run dev:web     # http://localhost:3000
+npm start           # API + dashboard together; opens http://localhost:3000. Ctrl+C stops both.
 ```
+
+On the dashboard, **Discover today's jobs** runs the same workflow as `npm run discover` in the background
+(Chrome windows open and close by themselves; do not close them) and shows its progress; when it finishes, the list
+switches to today's picks. Tick **email** to also email the Excel. (Separately: `npm run dev:api` / `npm run dev:web`.)
 
 Or straight from the terminal (writes `apps/api/jobs.json`):
 
@@ -38,6 +41,25 @@ npm run fetch -- 7 --sites=hirist --snapshot  # also saves pages to apps/api/.ca
 
 Jobs are read from the schema.org `JobPosting` data these sites publish for Google.
 
+## Discover: up to 50 new jobs a day, you apply yourself
+
+```bash
+npm run discover                 # LinkedIn, Naukri, Instahyre, Wellfound, Hirist → quality gate → dashboard
+npm run discover -- --email      # also email the Excel (Today's jobs, Skill gaps, Experience)
+npm run discover -- --snapshot   # also save pages, when a site needs fixing
+```
+
+- Never applies. Only the five sources above (no company boards, no startup lists).
+- Quality gate: score ≥ `minScore` (settings), a priority role (backend / Node.js / TypeScript / platform / AI backend
+  first, then software/SDE, then full-stack), open to India, not staff/principal/manager/junior, not asking for much
+  more experience than you have. Fewer than 50 when fewer qualify; quality is never lowered.
+- Never the same job twice: permanent history in `apps/api/.cache/history.json` (by id and by company + title,
+  so the same job on two sites counts once).
+- Skill gaps over every qualified job: demand count and %, what you have, what your resume does not show, what is
+  missing, and how often jobs ask for more years than you have. On the dashboard ("Skill gaps") and in the Excel.
+- Dashboard: "Daily picks" filter, minimum score, posting date, missing skills on every job, description under
+  "Details", and "Daily stats" per source.
+
 ## Daily: one command
 
 ```bash
@@ -54,6 +76,17 @@ entries (yours always win). It never answers gender, date of birth or disability
 that is not one of your strong skills. Anything it cannot answer is saved and asked by `npm run answers`.
 
 One-time: `npm run login -- naukri hirist instahyre wellfound` (log in, then press Enter).
+
+### Excel report + email
+
+Every `npm run daily` writes `~/.job-hunter/reports/jobs-YYYY-MM-DD.xlsx` (sheets: *Apply manually* with the reason
+each job was not auto-applied, *Applied*, *All jobs*; with links, emails published in the posting, the LinkedIn
+poster when shown, and the job description) and emails it to you. `npm run report` rebuilds and emails it only.
+
+To enable the email, once:
+1. Turn on 2-Step Verification for your Google account (required for App Passwords).
+2. Open https://myaccount.google.com/apppasswords, create one named "Job Hunter", copy the 16 characters.
+3. Put it in `~/.job-hunter/mail.json` as `"appPassword"`. Revoke it there any time.
 
 ## Check
 

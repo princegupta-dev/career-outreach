@@ -23,6 +23,7 @@ const PAGES: Record<string, string> = {
     fetch('/api/search?q=x').then((r) => r.json()).then(() => document.body.insertAdjacentHTML('beforeend', '<a href="/job/9" class="card">card</a>'));
   </script>`,
   '/api/search': JSON.stringify({ jobs: [{ title: 'API Job', company: 'Acme' }] }),
+  '/api/page2': JSON.stringify({ jobs: [{ title: 'Page 2 Job', company: 'Beta' }] }),
   // A bot-check page that clears by itself, then renders its job list late (like Cloudflare + a client-side list).
   '/slow': `<title>Just a moment...</title><body><script>
     setTimeout(() => { document.title = 'Jobs'; }, 300);
@@ -71,11 +72,14 @@ run('readSite (real Chrome, local pages)', () => {
   it('reads the job list from the data response the page itself loaded', async () => {
     const s: Site = {
       ...site('/spa'), ready: '.card', detailPages: false, dataUrl: /\/api\/search\?/,
-      parseData: (body) => (JSON.parse(body) as { jobs: Array<{ title: string; company: string }> }).jobs.map((j) => ({ provider: 'NAUKRI' as const, title: j.title, companyName: j.company, description: 'x', url: `${base}/job/api` })),
+      parseData: (body) => (JSON.parse(body) as { jobs: Array<{ title: string; company: string }> }).jobs.map((j) => ({ provider: 'NAUKRI' as const, title: j.title, companyName: j.company, description: 'x', url: `${base}/job/${j.title}` })),
     };
     const r = await readSite(ctx, s, { days: 7, delayMs: [10, 20] });
     expect(r.error).toBeUndefined();
     expect(r.jobs.map((j) => j.title)).toEqual(['API Job']);
+    // More pages fetched from inside the page, like the site's own "load more".
+    const paged = await readSite(ctx, { ...s, morePages: ['/api/page2'] }, { days: 7, delayMs: [10, 20] });
+    expect(paged.jobs.map((j) => j.title).sort()).toEqual(['API Job', 'Page 2 Job']);
   }, 60_000);
 
   it('stops at a login wall and says how to log in', async () => {

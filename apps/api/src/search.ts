@@ -7,6 +7,8 @@ import { CandidateProfile, parseProfileMarkdown } from './domain/profile/profile
 import { extractJob, normalizeText } from './domain/skills/extract';
 import { AshbyProvider, GreenhouseProvider, LeverProvider } from './providers/jobs/ats.providers';
 import { WorkdayProvider } from './providers/jobs/workday';
+import { LinkedInProvider } from './providers/jobs/linkedin';
+import { extractEmails } from './providers/jobs/emails';
 import { DEFAULT_EXCLUDE_TITLES, DEFAULT_SOURCES, DefaultSource, FLAG_TITLES } from './providers/jobs/default-sources';
 import { assessEligibility, JobProvider, JobSearchCriteria, passesBasicFilters, ProviderJob, SearchStats } from './providers/jobs/job-provider.interface';
 import { indiaCompanySources } from './india-companies';
@@ -33,6 +35,13 @@ export interface FoundJob {
   flags: string[];
   /** Only contacts published in public data (e.g. an email in the posting). Never guessed. */
   contacts: ContactCandidate[];
+  /** The job description (first 4000 characters), for the Excel report. */
+  description: string;
+  /** From the description (for the quality gate and the skill-gap analysis). Optional: older saved jobs lack them. */
+  skills?: string[];
+  minYears?: number | null;
+  roleFamily?: string;
+  seniority?: string;
 }
 
 export interface SourceReport {
@@ -49,7 +58,7 @@ export interface SearchResult {
   warnings: string[];
 }
 
-const PROVIDERS: JobProvider[] = [new GreenhouseProvider(), new LeverProvider(), new AshbyProvider(), new WorkdayProvider()];
+const PROVIDERS: JobProvider[] = [new GreenhouseProvider(), new LeverProvider(), new AshbyProvider(), new WorkdayProvider(), new LinkedInProvider()];
 const BOARDS = ['GREENHOUSE', 'LEVER', 'ASHBY'];
 
 export const PROFILE_PATH = process.env.CANDIDATE_PROFILE_PATH ?? path.resolve(__dirname, '../../../candidate/candidate-profile.md');
@@ -80,6 +89,16 @@ export function criteriaFor(profile: CandidateProfile, maxAgeDays = 30): JobSear
   };
 }
 
+/** Contacts the source gave, plus any email written in the description itself (published, never guessed). */
+function withPostedEmails(pj: ProviderJob): ContactCandidate[] {
+  const list = [...(pj.contacts ?? [])];
+  const known = new Set(list.map((c) => c.email?.toLowerCase()).filter(Boolean));
+  for (const email of extractEmails(pj.description)) {
+    if (!known.has(email)) list.push({ name: email, email, roleCategory: 'RECRUITER', source: 'job-description', sourceUrl: pj.url ?? null, confidence: 'VERIFIED' });
+  }
+  return list;
+}
+
 /** Turn one raw posting into a scored job, or null when it is unusable (no real description). */
 export function toFoundJob(pj: ProviderJob, criteria: JobSearchCriteria, profile: CandidateProfile, now = new Date()): FoundJob | null {
   if (normalizeText(pj.description).length < 50) return null;
@@ -105,7 +124,12 @@ export function toFoundJob(pj: ProviderJob, criteria: JobSearchCriteria, profile
     reasons: match.reasons,
     missingSkills: match.missing,
     flags: [...eligibility.flags, ...(pj.flags ?? [])],
-    contacts: pj.contacts ?? [],
+    contacts: withPostedEmails(pj),
+    description: normalizeText(pj.description).slice(0, 4000),
+    skills: [...new Set([...extraction.requiredSkills, ...extraction.preferredSkills])],
+    minYears: extraction.minYears,
+    roleFamily: extraction.roleFamily,
+    seniority: extraction.seniority,
   };
 }
 

@@ -56,3 +56,18 @@ describe('sourceLabel', () => {
     expect(['NAUKRI', 'WORKDAY', 'WWR', 'REMOTIVE', 'HN_HIRING'].map(isKnownSource)).toEqual([true, true, false, false, false]);
   });
 });
+
+describe('matchesFilters', () => {
+  const now = new Date('2026-11-13T00:00:00Z');
+  it('filters by daily picks, a picked day, minimum score and posting date; undated jobs are not treated as old', async () => {
+    const { matchesFilters, NO_FILTERS } = await import('./store');
+    const picked = job('p', { shownOn: '2026-11-12', score: 85, postedAt: '2026-11-11' });
+    const other = job('o', { score: 65, postedAt: '2026-10-01' });
+    const undated = job('u', { postedAt: null });
+    expect([picked, other, undated].map((j) => matchesFilters(j, NO_FILTERS, now))).toEqual([true, true, true]);
+    expect([picked, other].map((j) => matchesFilters(j, { ...NO_FILTERS, picks: 'picks' }, now))).toEqual([true, false]);
+    expect(matchesFilters(picked, { ...NO_FILTERS, picks: '2026-11-13' }, now)).toBe(false);
+    expect([picked, other].map((j) => matchesFilters(j, { ...NO_FILTERS, minScore: 70 }, now))).toEqual([true, false]);
+    expect([picked, other, undated].map((j) => matchesFilters(j, { ...NO_FILTERS, postedWithinDays: 7 }, now))).toEqual([true, false, true]);
+  });
+});

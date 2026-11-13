@@ -77,7 +77,7 @@ describe('default sources', () => {
     expect(DEFAULT_SOURCES.filter((s) => ['GREENHOUSE', 'ASHBY'].includes(s.provider)).every((s) => s.config.boardToken && s.config.domain)).toBe(true);
     expect(DEFAULT_SOURCES.filter((s) => s.provider === 'WORKDAY').every((s) => s.config.workday?.host.startsWith('https://') && s.config.workday.site && s.config.companyName)).toBe(true);
     expect(DEFAULT_SOURCES.length).toBeGreaterThan(70);
-    expect(DEFAULT_SOURCES.every((s) => ['GREENHOUSE', 'LEVER', 'ASHBY', 'WORKDAY'].includes(s.provider))).toBe(true);
+    expect(DEFAULT_SOURCES.every((s) => ['GREENHOUSE', 'LEVER', 'ASHBY', 'WORKDAY', 'LINKEDIN'].includes(s.provider))).toBe(true);
   });
 });
 

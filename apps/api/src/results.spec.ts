@@ -6,7 +6,7 @@ import type { FoundJob } from './search';
 
 const job = (id: string, over: Partial<FoundJob> = {}): FoundJob => ({
   id, title: 'Backend Engineer', company: 'Acme', companyDomain: null, location: 'Gurugram', remote: null, url: null, postedAt: '2026-11-10T00:00:00.000Z',
-  source: 'WELLFOUND', salaryText: null, teamSize: null, score: 70, recommendation: 'APPLY', reasons: [], missingSkills: [], flags: [], contacts: [], ...over,
+  source: 'WELLFOUND', salaryText: null, teamSize: null, score: 70, recommendation: 'APPLY', reasons: [], missingSkills: [], flags: [], contacts: [], description: '', ...over,
 });
 
 describe('mergeRun', () => {

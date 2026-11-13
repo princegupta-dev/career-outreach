@@ -188,3 +188,43 @@ export function parseNaukriSearch(body: string): ProviderJob[] {
   }
   return out;
 }
+
+/**
+ * Instahyre search results, from the JSON its own page loads (`/api/v1/job_search`). The list has no description and
+ * no posting date: the description is built from the job's own skill keywords and company note, and the date is left
+ * unknown (flagged), never invented.
+ */
+export function parseInstahyreSearch(body: string): ProviderJob[] {
+  let data: Rec;
+  try {
+    data = JSON.parse(body) as Rec;
+  } catch {
+    return [];
+  }
+  const out: ProviderJob[] = [];
+  for (const o of (data.objects ?? []) as Rec[]) {
+    const employer = (o.employer ?? {}) as Rec;
+    const title = typeof o.title === 'string' ? o.title.trim() : '';
+    const company = typeof employer.company_name === 'string' ? employer.company_name.trim() : '';
+    const url = typeof o.public_url === 'string' ? o.public_url : '';
+    if (!title || !company || !url || o.is_active === false) continue;
+    const keywords = Array.isArray(o.keywords) ? (o.keywords as unknown[]).filter((k): k is string => typeof k === 'string') : [];
+    const location = typeof o.locations === 'string' ? o.locations : null;
+    const note = typeof employer.instahyre_note === 'string' ? employer.instahyre_note : '';
+    const size = Number(employer.employee_count);
+    out.push({
+      provider: 'INSTAHYRE',
+      externalId: String(o.id ?? url),
+      url,
+      title,
+      companyName: company,
+      location,
+      remote: /remote/i.test(location ?? '') ? true : null,
+      description: [`${title} at ${company}.`, keywords.length ? `Skills: ${keywords.join(', ')}.` : '', note].filter(Boolean).join('\n'),
+      postedAt: null,
+      companyMeta: Number.isFinite(size) && size > 0 ? { teamSize: size } : undefined,
+      flags: ['source:list-only'],
+    });
+  }
+  return out;
+}

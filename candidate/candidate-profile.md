@@ -89,6 +89,25 @@ skills:
     - Authentication
     - OTP Systems
     - Database Migrations
+    # Added Nov 2026 from resume (Prince_Gupta_Full_Stack_AI_Engineer_Resume-v1.pdf): used throughout the job.
+    - SQL
+    - Performance Optimization
+    - System Design
+    - Express
+    - Event-Driven Architecture
+    - Database Transactions
+    - Concurrency
+    - Indexing
+    - Distributed Locks
+    - Idempotency
+    - Rate Limiting
+    - JWT
+    - Modular Monolith
+    - Git
+    # Moved from partial (resume: payout workflows, distributed locks, BullMQ workers).
+    - Payment Integrations
+    - Distributed Systems
+    - Background Job Processing
 
   partial:
     - AWS EC2
@@ -96,13 +115,35 @@ skills:
     - AWS IAM
     - AWS CloudWatch
     - Shopify
-    - Payment Integrations
     - Observability
-    - Distributed Systems
-    - Background Job Processing
     - Production Troubleshooting
+    # Added Nov 2026 from resume: listed or newer; never auto-claimed as years of experience.
+    - Microservices
+    - CI/CD
+    - Kubernetes
+    - MongoDB
+    - AWS S3
+    - AWS Lambda
+    - Prisma
+    - OpenTelemetry
+    - Prometheus
+    - LLMs
+    - Prompt Engineering
+    - Ollama
+    - Swagger
+    - React
+    - Next.js
+    - Java
+    - Python
+    - Worker Threads
+    - Streaming
+    - Linux
 
-  learning: []
+  learning:
+    - LangChain
+    - RAG
+    - Vector Databases
+    - AI Agents
 
 domains:
   - Loyalty platforms

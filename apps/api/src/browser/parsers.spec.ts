@@ -1,4 +1,4 @@
-import { parseHiristItemList, parseHiristSearch, parseNaukriSearch, parseWellfoundSearch, relativePosted, wellfoundTeamSize } from './parsers';
+import { parseHiristItemList, parseHiristSearch, parseInstahyreSearch, parseNaukriSearch, parseWellfoundSearch, relativePosted, wellfoundTeamSize } from './parsers';
 import { SITES } from './sites';
 
 const now = new Date('2026-11-11T12:00:00Z');
@@ -103,8 +103,8 @@ describe('parseHiristItemList (fallback when cards do not render)', () => {
 });
 
 describe('sites that need a visible window', () => {
-  it('Instahyre, Naukri and Indeed (their bot checks block headless Chrome)', () => {
-    expect(SITES.filter((x) => x.headed).map((x) => x.key)).toEqual(['instahyre', 'naukri', 'indeed']);
+  it('Hirist, Instahyre, Naukri and Indeed (headless Chrome is blocked or gets no job list)', () => {
+    expect(SITES.filter((x) => x.headed).map((x) => x.key)).toEqual(['hirist', 'instahyre', 'naukri', 'indeed']);
   });
 });
 
@@ -136,5 +136,29 @@ describe('parseNaukriSearch (Naukri search API response)', () => {
 
   it('returns nothing for a body that is not JSON', () => {
     expect(parseNaukriSearch('<html>Access Denied</html>')).toEqual([]);
+  });
+});
+
+describe('parseInstahyreSearch (Instahyre job_search API)', () => {
+  const body = JSON.stringify({
+    meta: { total_count: 2 },
+    objects: [
+      { id: 158231, title: 'Backend Engineer', locations: 'Bangalore', is_active: true, keywords: ['Node.js', 'PostgreSQL', 7], public_url: 'https://www.instahyre.com/job-158231-backend-engineer-at-physarum-bangalore/', employer: { company_name: 'Physarum', employee_count: 10, instahyre_note: 'AI app platform.' } },
+      { id: 2, title: 'Closed role', is_active: false, public_url: 'https://www.instahyre.com/job-2/', employer: { company_name: 'X' } },
+    ],
+  });
+  it('reads title, company, size, skills and link; leaves the date unknown rather than inventing one', () => {
+    expect(parseInstahyreSearch(body)).toEqual([
+      expect.objectContaining({
+        provider: 'INSTAHYRE', externalId: '158231', title: 'Backend Engineer', companyName: 'Physarum', location: 'Bangalore', postedAt: null,
+        url: 'https://www.instahyre.com/job-158231-backend-engineer-at-physarum-bangalore/', companyMeta: { teamSize: 10 }, flags: ['source:list-only'],
+        description: 'Backend Engineer at Physarum.\nSkills: Node.js, PostgreSQL.\nAI app platform.',
+      }),
+    ]);
+  });
+  it('searches Instahyre by job function (Backend Development), not free text it ignores', () => {
+    const ih = SITES.find((x) => x.key === 'instahyre')!;
+    expect(ih.searchUrls(['anything'], 7)).toEqual(['https://www.instahyre.com/search-jobs/?job_functions=10&years=3']);
+    expect(ih.morePages).toHaveLength(2);
   });
 });

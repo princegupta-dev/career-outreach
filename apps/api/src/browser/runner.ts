@@ -111,6 +111,15 @@ export async function readSite(
       add(parseJobPostings(r.scripts, site.provider, r.url, opts.now));
       if (site.parseSearch) add(site.parseSearch(await page.content(), opts.now ?? new Date()));
       await Promise.all(data);
+      // Further pages, from inside the page (same login), like the site's own "load more".
+      if (i === 0 && site.morePages && site.parseData) {
+        for (const more of site.morePages) {
+          await wait();
+          const body = await page.evaluate((u) => fetch(u, { credentials: 'include' }).then((r) => (r.ok ? r.text() : '')), more).catch(() => '');
+          pages++;
+          add(site.parseData(body, opts.now ?? new Date()));
+        }
+      }
       links.push(...r.hrefs);
       await wait();
     }

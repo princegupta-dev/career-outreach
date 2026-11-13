@@ -1,0 +1,69 @@
+Prince Gupta
+Senior Software Engineer | Backend Engineering | Distributed Systems | GenAI
+Gurgaon, India | +91-8059258639 | pg150704@gmail.com
+LinkedIn | GitHub
+
+Professional Summary
+Senior Software Engineer with 3.5 years of experience building and operating enterprise backend systems using Node.js, TypeScript, and NestJS. Experienced in designing modular architectures, distributed workflows, transaction-safe financial operations, and high-reliability APIs across enterprise loyalty, e-commerce, and multi-tenant platforms. Strong practical experience with database transactions, concurrency control, Redis, BullMQ, SQL optimization, third-party integrations, and production debugging. Hands-on experience with LLM API integration and AI-assisted application workflows, including structured outputs and application-level validation. Demonstrated ability to investigate production bottlenecks, make architecture decisions, and improve system reliability and performance.
+
+Technical Skills
+Languages: TypeScript, JavaScript, SQL, Python, Java, C++, HTML/CSS
+Backend Engineering: Node.js, NestJS, Express.js, REST APIs, GraphQL, Microservices, Modular Monoliths, Swagger/OpenAPI, Authentication, RBAC
+Database Engineering: MySQL, PostgreSQL, MongoDB, Prisma, Sequelize, Database Transactions, Row-Level Locking, Indexing, Query Optimization, EXPLAIN ANALYZE, Connection Pooling
+Distributed Systems: Redis, BullMQ, Distributed Locks, Idempotency, Retry Strategies, Exponential Backoff, Rate Limiting, Event-Driven Workflows, Transactional Outbox Concepts, Failure Recovery
+GenAI Engineering: Anthropic Claude API, Ollama, LLM Integration, Prompt Engineering, Structured JSON Output, Application-Level Validation, AI Guardrails, RAG Concepts, AI Agents, LangChain, Vector Databases
+Frontend: React.js, Next.js, Tailwind CSS, SWR, HTML5, CSS3
+Cloud and DevOps: AWS (EC2, RDS, S3, Lambda, IAM, CloudWatch), Docker, Kubernetes, Jenkins, CI/CD, Git, Linux
+Observability and Performance: OpenTelemetry, Prometheus, Structured Logging, Distributed Tracing, Node.js Event Loop, Worker Threads, Streaming, Health Checks, Production Debugging
+
+Professional Experience
+Senior Software Engineer, May 2023 – Present
+Tech Almond Solutions Pvt. Ltd. (Almonds.ai), Gurgaon, India
+- Own backend architecture and end-to-end feature delivery for enterprise loyalty, engagement, and e-commerce platforms serving painters, contractors, dealers, retailers, and field sales teams.
+- Architect and maintain a NestJS modular monolith with 45 feature modules, approximately 370 REST APIs, 93 data models, and 179 database migrations, supporting wallets, QR-based earning, reward redemption, KYC, campaign engines, and lucky draws.
+- Design transaction-safe financial workflows using database transactions, SELECT FOR UPDATE row-level locking, Redis-based coordination, and idempotency checks to prevent duplicate credits, debits, and payouts.
+- Build reward allocation and campaign processing logic using atomic database operations, Redis counters, and concurrency controls to enforce business limits under simultaneous user requests.
+- Integrate external services including Shopify, payment and bank payout providers, Aadhaar/DigiLocker KYC, voucher providers, WhatsApp, SMS, and IVR gateways, implementing timeouts, retry strategies, and failure handling around unreliable dependencies.
+- Develop asynchronous processing workflows using BullMQ and Redis for notifications, reward operations, and background processing, with retry policies, idempotent job execution, and failure recovery.
+- Develop React and Next.js administrative and call-center interfaces, integrating them with JWT/OTP authentication, role-based authorization, and backend services.
+- Investigate production incidents involving Redis, BullMQ, database performance, connection pools, and third-party integrations; implement SQL audits, data corrections, and safe backfills.
+- Improve application observability using structured logging, OpenTelemetry instrumentation, Prometheus metrics, slow-query monitoring, and application health and readiness checks.
+- Work with Docker, AWS, Kubernetes, and Jenkins-based deployment workflows, contributing to production releases, backward-compatible migrations, and engineering decisions around system reliability.
+- Integrate LLM APIs and develop AI-assisted application workflows, focusing on prompt design, structured responses, application-level validation, and controlled failure handling.
+
+Selected Projects
+Snowcem – Enterprise Painter and Contractor Loyalty Platform | NestJS, TypeScript, MySQL, Redis, BullMQ, AWS, OpenTelemetry
+- Developed backend capabilities for an enterprise loyalty platform enabling painters and contractors to scan product QR codes, earn points through configurable schemes and slabs, manage wallets, and redeem rewards through bank payouts, vouchers, and lucky draws.
+- Worked across core business modules including QR validation, scheme calculations, reward allocation, wallet ledgers, redemption, KYC, approvals, TDS handling, campaign management, and customer engagement.
+- Implemented concurrency-safe wallet and redemption workflows using database transactions, row-level locking, Redis-based locks, and idempotency controls to prevent duplicate QR credits and concurrent reward redemption.
+- Designed payout workflows using database-backed debit operations, external provider integration, compensating credits on failure, and idempotent retries to maintain financial consistency.
+- Built BullMQ workers and Redis-backed workflows for WhatsApp meeting invitations, lucky-draw notifications, and reward-related asynchronous operations.
+- Implemented Redis caching and rate limiting for frequently accessed data and public APIs, with cache invalidation and concurrency considerations.
+- Worked on backward-compatible schema migrations, SQL audits, and data correction workflows to maintain consistency across evolving business modules.
+
+GPI – Multi-Tenant Loyalty and Field Productivity Platform | Node.js, TypeScript, NestJS, MySQL, Redis, AWS, Kubernetes
+- Developed configurable loyalty and productivity modules for field sales teams, promoters, and retailers, including OTP- and IVR-based authentication through external communication gateways.
+- Built reusable multi-tenant business modules for survey collection, retailer management, promoter workflows, campaign rules, and reward allocation across client configurations.
+- Implemented Redis-backed reward reservation counters to enforce campaign limits and prevent concurrent requests from exceeding configured reward allocations.
+
+Fills – Shopify-Integrated E-Commerce Marketplace | Node.js, TypeScript, MySQL, Shopify GraphQL API, Redis, AWS
+- Developed backend services for product, inventory, and order synchronization between the marketplace and Shopify using GraphQL Admin APIs.
+- Implemented webhook processing with duplicate-event handling, failure logging, and reprocessing to improve synchronization reliability.
+- Worked on product discovery, categories, banners, wishlist caching, and backend API performance optimization.
+
+HCCB DMC – Driver Management and Control System | Node.js, MySQL, Redis, Docker, Firebase
+- Developed backend features for Coca-Cola's driver management platform, supporting operational workflows and secure data exchange.
+- Optimized SQL queries and database indexes and implemented asymmetric cryptography for secure data communication.
+
+Engineering Achievements
+- Node.js Performance Engineering: Investigated event-loop blocking during large-scale data processing and optimized processing through streaming and batching. In controlled experiments, reduced health endpoint p50 latency from 330–615 ms to 10–14 ms and p99 latency from 1.2–2.7 seconds to 34–57 ms.
+- Database Performance Optimization: Used EXPLAIN ANALYZE to identify full table scans, introduced composite indexes, removed redundant indexes, and optimized slow dashboard queries.
+- Redis Cluster Reliability: Investigated CROSSSLOT errors caused by multi-key operations and redesigned related Redis keys using hash tags to ensure compatible cluster slots.
+- Background Job Reliability: Investigated stalled BullMQ jobs and duplicate notification processing, improving retry policies, worker idempotency, and failure diagnosis.
+- Zero-Downtime Database Changes: Applied backward-compatible expand-and-contract migration strategies and introduced schema validation checks to identify incomplete migrations.
+- Database Connection Management: Investigated connection pool saturation caused by long-running transactions and separated external HTTP operations from database transaction boundaries.
+- External Service Resilience: Implemented timeout, retry, and compensating transaction patterns around payment, messaging, and KYC provider integrations.
+
+Education
+Indira Gandhi University, 2019 – 2023
+Bachelor of Technology in Computer Science and Engineering, Haryana, India
