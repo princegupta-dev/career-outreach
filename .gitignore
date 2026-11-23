@@ -8,6 +8,9 @@ coverage/
 *.log
 .DS_Store
 apps/api/storage/
+apps/api/.cache/outreach/
+apps/api/.cache/naukri/
+apps/api/.cache/platform-inspection/
 next-env.d.ts
 *.tsbuildinfo
 dump.rdb

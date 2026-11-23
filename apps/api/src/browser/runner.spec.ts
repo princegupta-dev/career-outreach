@@ -69,6 +69,15 @@ run('readSite (real Chrome, local pages)', () => {
     expect(r.pages).toBe(1);
   }, 60_000);
 
+  it('enriches card-only jobs for an application preview without changing normal discovery', async () => {
+    const s: Site = { ...site('/search'), detailPages: false, parseSearch: () => [{ provider: 'HIRIST', title: 'Card title', companyName: 'Acme', description: 'Summary only.', flags: ['source:card-only'], url: `${base}/job/1` }] };
+    const normal = await readSite(ctx, s, { days: 7, delayMs: [10, 20], now: new Date('2026-11-11') });
+    expect(normal.jobs.map((j) => j.title)).toEqual(['Card title']); expect(normal.pages).toBe(1);
+    const full = await readSite(ctx, s, { days: 7, enrichList: true, maxJobs: 1, delayMs: [10, 20], now: new Date('2026-11-11') });
+    expect(full.jobs.map((j) => j.title)).toEqual(['Backend Engineer']);
+    expect(full.jobs[0].description).toContain('PostgreSQL'); expect(full.jobs[0].flags ?? []).not.toContain('source:card-only'); expect(full.pages).toBe(2);
+  }, 60_000);
+
   it('reads the job list from the data response the page itself loaded', async () => {
     const s: Site = {
       ...site('/spa'), ready: '.card', detailPages: false, dataUrl: /\/api\/search\?/,

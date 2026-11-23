@@ -190,14 +190,14 @@ const hasChrome = fs.existsSync('/Applications/Google Chrome.app') || fs.existsS
   beforeEach(() => {
     hits.length = 0;
   });
-  const apply = (p: string, dryRun = false) => applyOnSite(page, APPLY_SITES.naukri, { id: p.slice(1), url: base + p, title: 'Backend Engineer' }, { answers: bank, strongSkills: profile.strongSkills, dryRun });
+  const apply = (p: string, dryRun = false) => applyOnSite(page, APPLY_SITES.naukri, { id: p.slice(1), url: base + p, title: 'Backend Engineer' }, { answers: bank.map((a) => ({ ...a, source: 'you' })), strongSkills: profile.strongSkills, profile, resumeText: '', dryRun, allowTestUrl: (url) => url.startsWith(base + '/'), waitMs: 1500 });
 
   it('clicks Apply and sees the confirmation', async () => {
-    expect(await apply('/simple')).toEqual({ status: 'applied' });
+    expect(await apply('/simple')).toMatchObject({ status: 'applied' });
     expect(hits).toEqual(['simple']);
   }, 30_000);
   it('finds the Apply control by the site\'s id even when it is not a button', async () => {
-    expect(await apply('/by-id')).toEqual({ status: 'applied' });
+    expect(await apply('/by-id')).toMatchObject({ status: 'applied' });
     expect(hits).toEqual(['by-id']);
   }, 30_000);
   it('does not click anything in a dry run', async () => {
@@ -211,15 +211,15 @@ const hasChrome = fs.existsSync('/Applications/Google Chrome.app') || fs.existsS
     expect((await apply('/closed')).status).toBe('no-button');
   }, 60_000);
   it('types a text answer', async () => {
-    expect(await apply('/text')).toEqual({ status: 'applied' });
+    expect(await apply('/text')).toMatchObject({ status: 'applied' });
     expect(hits).toEqual(['30 days']);
   }, 30_000);
   it('picks the radio option that contains your years (3 → "2-4 years")', async () => {
-    expect(await apply('/radio')).toEqual({ status: 'applied' });
+    expect(await apply('/radio')).toMatchObject({ status: 'applied' });
     expect(hits).toEqual(['radio-2-4']);
   }, 30_000);
   it('chooses a dropdown option', async () => {
-    expect(await apply('/select')).toEqual({ status: 'applied' });
+    expect(await apply('/select')).toMatchObject({ status: 'applied' });
     expect(hits).toEqual(['select-Yes']);
   }, 30_000);
   it('stops on a question it must not answer, and saves it for npm run answers', async () => {

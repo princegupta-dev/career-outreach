@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { EMPTY, Filters, isKnownSource, Job, JobStatus, load, matchesFilters, mergeResults, NO_FILTERS, save, setStatus, sourceLabel, State, StoredJob } from '@/lib/store';
+import { OllamaStatus, OutreachPanel } from '@/components/outreach-panel';
+import { CareerWorkspace, FillApplicationButton } from '@/components/career-workspace';
 
 interface DiscoverStatus {
   running: boolean;
@@ -53,6 +55,7 @@ export default function JobsPage() {
   const [panel, setPanel] = useState<'none' | 'stats' | 'gaps'>('none');
   const [disc, setDisc] = useState<DiscoverStatus | null>(null);
   const [emailToo, setEmailToo] = useState(false);
+  const [naukriBusy, setNaukriBusy] = useState(false);
 
   /** Ask the server how the background discover run is going; keep asking every 3 s while it runs. */
   async function pollDiscover() {
@@ -77,6 +80,10 @@ export default function JobsPage() {
     try {
       const res = await fetch(`/api/discover?days=${days}${emailToo ? '&email=1' : ''}`, { method: 'POST' });
       if (res.status !== 202 && res.status !== 409) throw new Error(`HTTP ${res.status}`);
+      if (res.status === 409) {
+        const body = await res.json() as { running?: boolean; error?: string };
+        if (!body.running) throw new Error(body.error ?? 'Another Chrome task is running.');
+      }
       await pollDiscover();
     } catch (e) {
       setError(`Could not start discover: ${(e as Error).message}. Is the API running (npm start)?`);
@@ -110,6 +117,9 @@ export default function JobsPage() {
     setState(load());
     void refresh();
     void pollDiscover(); // picks up a run that is already going (e.g. after a page reload)
+    const applicationsChanged = () => void refresh();
+    window.addEventListener('naukri-results-changed', applicationsChanged);
+    return () => window.removeEventListener('naukri-results-changed', applicationsChanged);
     // Run once when the page opens; `refresh` is recreated each render and must not re-trigger this.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -153,6 +163,7 @@ export default function JobsPage() {
   const count = (s: Tab) => Object.values(state.jobs).filter((j) => isKnownSource(j.source) && (s === 'all' || j.status === s)).length;
 
   return (
+    <CareerWorkspace jobs={Object.values(state.jobs)} discoveryRunning={!!disc?.running} onNaukriBusy={setNaukriBusy}>
     <main className="mx-auto max-w-5xl px-4 py-6">
       <header className="mb-4 flex flex-wrap items-center gap-3">
         <h1 className="mr-auto text-xl font-semibold">Job Hunter</h1>
@@ -170,7 +181,7 @@ export default function JobsPage() {
           <input type="checkbox" checked={boards} onChange={(e) => setBoards(e.target.checked)} />
           + job boards (slow)
         </label>
-        <button onClick={search} disabled={loading} className="rounded px-4 py-2 text-sm font-medium ring-1 ring-slate-300 disabled:opacity-50" title="Company career sites (the older search)">
+        <button onClick={search} disabled={loading || (naukriBusy && boards)} className="rounded px-4 py-2 text-sm font-medium ring-1 ring-slate-300 disabled:opacity-50" title="Company career sites (the older search)">
           {loading ? 'Searching…' : 'Find jobs'}
         </button>
         <label className="flex items-center gap-1 text-sm text-slate-600" title="Also email the Excel report">
@@ -179,13 +190,15 @@ export default function JobsPage() {
         </label>
         <button
           onClick={startDiscover}
-          disabled={disc?.running}
+          disabled={disc?.running || naukriBusy}
           className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           title="LinkedIn, Naukri, Instahyre, Wellfound, Hirist → up to 50 new jobs + skill gaps. Never applies. Chrome windows will open; do not close them."
         >
           {disc?.running ? 'Discovering…' : "Discover today's jobs"}
         </button>
       </header>
+
+      <OllamaStatus />
 
       {disc && (disc.running || disc.finishedAt) && <DiscoverPanel st={disc} onClose={() => setDisc(null)} />}
 
@@ -259,6 +272,7 @@ export default function JobsPage() {
         </ul>
       )}
     </main>
+    </CareerWorkspace>
   );
 }
 
@@ -335,6 +349,8 @@ function JobRow({ job, isNew, onStatus }: { job: StoredJob; isNew: boolean; onSt
           )}
         </div>
       )}
+      <OutreachPanel key={`${job.title}:${job.company}:${job.description}`} jobId={job.id} />
+      <FillApplicationButton job={job} />
     </li>
   );
 }

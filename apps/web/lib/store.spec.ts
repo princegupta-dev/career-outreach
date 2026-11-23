@@ -26,6 +26,12 @@ describe('mergeResults', () => {
     const s = mergeResults(mergeResults(EMPTY, [job('a')], 'T1'), [], 'T2');
     expect(s.jobs.a).toBeDefined();
   });
+  it('syncs confirmed applications from the server without resetting the first-seen date', () => {
+    const existing = setStatus(mergeResults(EMPTY, [job('a')], 'T1'), 'a', 'skipped');
+    const next = mergeResults(existing, [job('a', { appliedAt: 'T2' }), job('b', { appliedAt: 'T2' })], 'T3');
+    expect(next.jobs.a).toMatchObject({ status: 'applied', firstSeenAt: 'T1' });
+    expect(next.jobs.b.status).toBe('applied');
+  });
 });
 
 describe('setStatus', () => {

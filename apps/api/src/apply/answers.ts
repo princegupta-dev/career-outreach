@@ -119,12 +119,13 @@ const has = (q: string, m: string) => q.includes(norm(m)) || (m.length >= 4 && q
  * equally specific but disagree, or when an experience question names a technology that is not one of your
  * strong skills (so "years of experience in Elixir" is never answered with your total years).
  */
-export function matchAnswer(question: string, answers: Answer[], strongSkills?: string[]): string | null {
+export function matchAnswer(question: string, answers: Answer[], strongSkills?: string[], options: { allowConfirmedNo?: boolean } = {}): string | null {
   const q = norm(question);
+  let unsupported = false;
   if (/experience|years|worked|proficien/i.test(question)) {
-    if (NEVER_CLAIM.some((s) => q.includes(norm(s)))) return null;
+    if (NEVER_CLAIM.some((s) => q.includes(norm(s)))) unsupported = true;
     const strong = new Set((strongSkills ?? []).map((s) => s.toLowerCase()));
-    if (strongSkills && [...findSkills(question).keys()].some((s) => !strong.has(s.toLowerCase()))) return null;
+    if (strongSkills && [...findSkills(question).keys()].some((s) => !strong.has(s.toLowerCase()))) unsupported = true;
   }
   const all = answers.filter((a) => a.answer.trim() && a.match.length && a.match.every((m) => has(q, m)));
   // Your own answers always beat the tool's (e.g. your "node → 3.7" over the profile's "node.js experience → 3").
@@ -133,7 +134,9 @@ export function matchAnswer(question: string, answers: Answer[], strongSkills?: 
   if (!hits.length) return null;
   const best = Math.max(...hits.map((h) => h.match.join(' ').length));
   const top = [...new Set(hits.filter((h) => h.match.join(' ').length === best).map((h) => h.answer.trim()))];
-  return top.length === 1 ? top[0] : null;
+  if (top.length !== 1) return null;
+  if (unsupported && !(options.allowConfirmedNo && /^no$/i.test(top[0]) && yours.length > 0)) return null;
+  return top[0];
 }
 
 /**

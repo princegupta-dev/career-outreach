@@ -15,13 +15,14 @@ export const PROFILE_DIR = process.env.JOB_HUNTER_CHROME_PROFILE ?? path.join(os
 /** Read when used (not at import), so tests can point it at a temp folder. */
 const snapshotDir = () => process.env.JOB_HUNTER_SNAPSHOTS ?? path.resolve(__dirname, '../../.cache/snapshots');
 
-export async function openBrowser(headless: boolean, profileDir = PROFILE_DIR): Promise<BrowserContext> {
+export async function openBrowser(headless: boolean, profileDir = PROFILE_DIR, options: { serviceWorkers?: 'block' | 'allow' } = {}): Promise<BrowserContext> {
   const { chromium } = await import('playwright');
   fs.mkdirSync(profileDir, { recursive: true });
   return chromium.launchPersistentContext(profileDir, {
     channel: 'chrome',
     headless,
     viewport: { width: 1280, height: 900 },
+    ...options,
     // Playwright passes --use-mock-keychain, which makes Chrome ignore the macOS keychain. Then it does not trust
     // certificates your Mac trusts (e.g. an antivirus or office proxy that inspects HTTPS) and refuses sites your
     // normal Chrome opens fine. Dropping the flag gives it exactly your normal Chrome's trust; it trusts nothing extra.
@@ -62,7 +63,7 @@ export interface SiteRun {
 export async function readSite(
   ctx: BrowserContext,
   site: Site,
-  opts: { days: number; maxJobs?: number; snapshot?: boolean; now?: Date; keywords?: string[]; delayMs?: [number, number] },
+  opts: { days: number; maxJobs?: number; snapshot?: boolean; now?: Date; keywords?: string[]; delayMs?: [number, number]; enrichList?: boolean },
 ): Promise<SiteRun> {
   const page = await ctx.newPage();
   const wait = () => pause(...(opts.delayMs ?? [3000, 7000]));
@@ -123,7 +124,7 @@ export async function readSite(
       links.push(...r.hrefs);
       await wait();
     }
-    const detail = site.detailPages === false ? [] : jobLinks(links, site, opts.maxJobs ?? 15).filter((u) => !jobs.has(u));
+    const detail = site.detailPages === false && !opts.enrichList ? [] : jobLinks(links, site, opts.maxJobs ?? 15).filter((u) => !jobs.has(u) || opts.enrichList && jobs.get(u)?.flags?.some((f) => ['source:list-only', 'source:card-only'].includes(f)));
     for (const [i, url] of detail.entries()) {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
       await settle(page);

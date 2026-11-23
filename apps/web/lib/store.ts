@@ -36,6 +36,8 @@ export interface Job {
   description?: string;
   /** The day `npm run discover` picked this job for you (absent for jobs from other searches). */
   shownOn?: string;
+  /** Confirmed by the server's application history; survives changing browsers. */
+  appliedAt?: string;
 }
 
 export interface StoredJob extends Job {
@@ -60,7 +62,7 @@ export function mergeResults(state: State, jobs: Job[], ranAt: string): State {
   const next: Record<string, StoredJob> = { ...state.jobs };
   for (const j of jobs) {
     const prev = next[j.id];
-    next[j.id] = prev ? { ...j, status: prev.status, firstSeenAt: prev.firstSeenAt } : { ...j, status: 'new', firstSeenAt: j.firstSeenAt ?? ranAt };
+    next[j.id] = prev ? { ...j, status: j.appliedAt ? 'applied' : prev.status, firstSeenAt: prev.firstSeenAt } : { ...j, status: j.appliedAt ? 'applied' : 'new', firstSeenAt: j.firstSeenAt ?? ranAt };
   }
   return { jobs: next, lastRunAt: ranAt };
 }

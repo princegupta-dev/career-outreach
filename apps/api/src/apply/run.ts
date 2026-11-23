@@ -39,7 +39,9 @@ export async function runApply(opts: { forceDryRun?: boolean; minScore?: number;
         const dryRun = modeOf(site.key) === 'dry-run';
         let result;
         try {
-          result = await applyOnSite(page, site, { id: job.id, url: job.url!, title: job.title }, { answers, strongSkills: profile.strongSkills, dryRun });
+          result = await applyOnSite(page, site, { id: job.id, url: job.url!, title: job.title, company: job.company }, { answers, strongSkills: profile.strongSkills, profile, dryRun,
+            beforeApply: () => record({ jobId: job.id, url: job.url!, title: job.title, company: job.company, status: 'verification-required', at: new Date().toISOString(), note: 'Apply is starting; verify the result if this process is interrupted.' }),
+          });
         } catch (e) {
           result = { status: 'failed' as const, note: (e as Error).message.split('\n')[0].slice(0, 200) };
         }
@@ -48,6 +50,7 @@ export async function runApply(opts: { forceDryRun?: boolean; minScore?: number;
         const line = `${String(i + 1).padStart(2)}. ${result.status.padEnd(15)} ${job.score}  ${site.name}: ${job.company} — ${job.title}${result.note ? `  (${result.note})` : ''}`;
         lines.push(line);
         say(line);
+        if (site.key === 'naukri' && result.status === 'failed' && /login|browser check|certificate/i.test(result.note ?? '')) break;
         if (result.status === 'failed' && /Not logged in/.test(result.note ?? '')) continue;
         if (i < jobs.length - 1) await pause(dryRun ? 4000 : 20_000 + Math.random() * 20_000);
       }

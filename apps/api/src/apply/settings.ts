@@ -11,7 +11,7 @@ export const SETTINGS_FILE = process.env.JOB_HUNTER_SETTINGS ?? path.join(os.hom
 
 export type Mode = 'off' | 'dry-run' | 'on';
 export interface ApplySettings {
-  autoApply: Record<ApplySite['key'], Mode>;
+  autoApply: Record<ApplySite['key'], Mode> & { external?: Mode; linkedin?: Mode; wellfound?: Mode };
   minScore: number;
   maxPerRun: number;
   /** Days back to look for new jobs in the daily run. */
@@ -41,6 +41,7 @@ export function loadSettings(file = SETTINGS_FILE): ApplySettings {
     const m = raw.autoApply?.[k];
     if (m && MODES.includes(m)) autoApply[k] = m;
   }
+  for (const k of ['external', 'linkedin', 'wellfound'] as const) if (raw.autoApply?.[k] && MODES.includes(raw.autoApply[k]!)) autoApply[k] = raw.autoApply[k];
   const num = (v: unknown, d: number, lo: number, hi: number) => (typeof v === 'number' && v >= lo && v <= hi ? v : d);
   return {
     autoApply,
